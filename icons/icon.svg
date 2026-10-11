@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2fa8ff"/>
+      <stop offset="1" stop-color="#bfeaff"/>
+    </linearGradient>
+    <radialGradient id="red" cx=".35" cy=".3" r=".8">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset=".18" stop-color="#ff5a6e"/>
+      <stop offset="1" stop-color="#c41f3a"/>
+    </radialGradient>
+    <radialGradient id="gold" cx=".35" cy=".3" r=".8">
+      <stop offset="0" stop-color="#fffbd0"/>
+      <stop offset=".4" stop-color="#ffd84a"/>
+      <stop offset="1" stop-color="#c88a0a"/>
+    </radialGradient>
+    <radialGradient id="blue" cx=".35" cy=".3" r=".8">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset=".18" stop-color="#4aa8ff"/>
+      <stop offset="1" stop-color="#1c63c9"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#sky)"/>
+  <ellipse cx="110" cy="420" rx="90" ry="34" fill="#fff" opacity=".9"/>
+  <ellipse cx="150" cy="398" rx="54" ry="40" fill="#fff" opacity=".9"/>
+  <ellipse cx="420" cy="140" rx="70" ry="26" fill="#fff" opacity=".85"/>
+  <ellipse cx="445" cy="122" rx="40" ry="30" fill="#fff" opacity=".85"/>
+  <!-- 青い風船 -->
+  <path d="M120 300 q8 50 -6 100" stroke="#5a5a6e" stroke-width="5" fill="none" opacity=".7"/>
+  <path d="M120 150 C185 150 182 250 120 296 C58 250 55 150 120 150Z" fill="url(#blue)"/>
+  <path d="M120 292 l9 14 h-18Z" fill="#1c63c9"/>
+  <!-- 金色の風船 -->
+  <path d="M400 330 q-10 50 6 100" stroke="#5a5a6e" stroke-width="5" fill="none" opacity=".7"/>
+  <path d="M400 200 C455 200 452 290 400 326 C348 290 345 200 400 200Z" fill="url(#gold)"/>
+  <path d="M400 322 l8 13 h-16Z" fill="#b8860b"/>
+  <!-- 大きな赤い風船 -->
+  <path d="M256 368 q26 50 -8 140" stroke="#5a5a6e" stroke-width="7" fill="none" opacity=".7"/>
+  <path d="M256 70 C362 70 356 250 256 360 C156 250 150 70 256 70Z" fill="url(#red)"/>
+  <path d="M256 354 l14 22 h-28Z" fill="#c41f3a"/>
+  <ellipse cx="214" cy="150" rx="20" ry="38" fill="#fff" opacity=".55" transform="rotate(-28 214 150)"/>
+  <!-- パチン！ -->
+  <g fill="#fff8c8" stroke="#ffb400" stroke-width="4" stroke-linejoin="round">
+    <path d="M395 60 l10 26 26 4 -22 14 6 26 -20 -18 -20 18 6 -26 -22 -14 26 -4Z"/>
+    <path d="M70 70 l7 17 17 3 -14 9 4 17 -14 -12 -13 12 4 -17 -14 -9 17 -3Z"/>
+  </g>
+</svg>

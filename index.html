@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>バルーンポップ！</title>
+
+  <!-- PWA（ホーム画面に追加して、アプリのように遊ぶための設定） -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#4dbdff">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="バルーンポップ">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 明るい青空の背景（太陽・ながれる雲・丘） -->
+  <div class="sky" aria-hidden="true">
+    <div class="sun"></div>
+    <div class="cloud c1"></div>
+    <div class="cloud c2"></div>
+    <div class="cloud c3"></div>
+    <div class="cloud c4"></div>
+    <div class="cloud c5"></div>
+    <div class="hills"></div>
+  </div>
+
+  <!-- 風船がとぶところ（ここをタップして風船をわる） -->
+  <canvas id="field"></canvas>
+
+  <!-- プレイ中の表示 -->
+  <div class="hud hidden" id="hud">
+    <div class="hud-row">
+      <div class="chip stage">ステージ <b id="stageNum">1</b></div>
+      <div class="chip time" id="timeChip"><span class="label">のこり</span><b id="timeNum">60</b><span class="unit">秒</span></div>
+      <div class="lives" id="lives" aria-label="ライフ">
+        <svg class="heart" viewBox="0 0 24 22"><path d="M12 21 2.6 11.6A5.6 5.6 0 0 1 12 3.8a5.6 5.6 0 0 1 9.4 7.8Z"/></svg>
+        <svg class="heart" viewBox="0 0 24 22"><path d="M12 21 2.6 11.6A5.6 5.6 0 0 1 12 3.8a5.6 5.6 0 0 1 9.4 7.8Z"/></svg>
+        <svg class="heart" viewBox="0 0 24 22"><path d="M12 21 2.6 11.6A5.6 5.6 0 0 1 12 3.8a5.6 5.6 0 0 1 9.4 7.8Z"/></svg>
+      </div>
+      <button class="iconBtn" id="pauseBtn" aria-label="一時停止"><span class="pauseIcon"></span></button>
+    </div>
+    <div class="hud-row">
+      <div class="chip score">とくてん <b id="scoreNum">0</b></div>
+      <div class="goal" id="goal">
+        <div class="goal-text">目標 <b id="stageScoreNum">0</b> / <span id="targetNum">200</span></div>
+        <div class="goal-bar"><div class="goal-fill" id="goalFill"></div></div>
+      </div>
+    </div>
+    <div class="combo" id="combo"></div>
+  </div>
+
+  <!-- 「ステージ1」「スタート！」「目標たっせい！」などの大きな文字 -->
+  <div class="banner" id="banner"></div>
+  <!-- コンボボーナスの文字 -->
+  <div class="bonus" id="bonus"></div>
+
+  <!-- スタート画面 -->
+  <div class="screen" id="start">
+    <div class="panel start-panel">
+      <div class="deco" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+      <h1 class="title"><span>バ</span><span>ル</span><span>ー</span><span>ン</span><span>ポ</span><span>ッ</span><span>プ</span><span>！</span></h1>
+      <p class="lead">ふうせんをタップして、わろう！</p>
+      <ul class="rules">
+        <li><canvas class="kindIcon" data-kind="normal"></canvas><b>10点</b><small>ふつう</small></li>
+        <li><canvas class="kindIcon" data-kind="gold"></canvas><b>50点</b><small>金色</small></li>
+        <li><canvas class="kindIcon" data-kind="rainbow"></canvas><b>まとめわり</b><small>にじ色</small></li>
+        <li><canvas class="kindIcon" data-kind="clock"></canvas><b>+10秒</b><small>とけい</small></li>
+        <li><canvas class="kindIcon" data-kind="bomb"></canvas><b>ライフ-1</b><small>ばくだん</small></li>
+      </ul>
+      <p class="note">60秒で目標点をこえるとステージクリア！<br>5回つづけてわると、ボーナス+50点</p>
+      <div class="best">最高得点 <b id="bestScore">0</b>点<span class="sep">／</span>最高ステージ <b id="bestStage">0</b></div>
+      <button class="btn" id="startBtn">あそぶ</button>
+      <button class="btn sub soundToggle" type="button">音：オン</button>
+    </div>
+  </div>
+
+  <!-- 一時停止 -->
+  <div class="screen dim hidden" id="pause">
+    <div class="panel">
+      <h2>一時停止</h2>
+      <div class="menu" id="pauseMenu">
+        <button class="btn" id="resumeBtn">つづける</button>
+        <button class="btn sub soundToggle" type="button">音：オン</button>
+        <button class="btn sub" id="restartBtn">さいしょから</button>
+        <button class="btn sub" id="quitBtn">タイトルへ</button>
+      </div>
+      <div class="menu hidden" id="confirm">
+        <p class="confirmText" id="confirmText">さいしょからやり直しますか？</p>
+        <button class="btn" id="noBtn">いいえ（つづける）</button>
+        <button class="btn sub" id="yesBtn">はい</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ステージクリア -->
+  <div class="screen dim hidden" id="clear">
+    <div class="panel">
+      <h2>ステージ <span id="clearStage">1</span> クリア！</h2>
+      <div class="stars" id="stars"><span class="star"></span><span class="star"></span><span class="star"></span></div>
+      <dl class="stats">
+        <dt>このステージ</dt><dd><b id="clearStageScore">0</b>点（目標 <span id="clearTarget">200</span>点）</dd>
+        <dt>ごうけい</dt><dd><b id="clearTotal">0</b>点</dd>
+      </dl>
+      <p class="starHint">★2：目標の1.5ばい ／ ★3：目標の2ばい＋ばくだん0回</p>
+      <button class="btn" id="nextBtn">つぎのステージへ</button>
+    </div>
+  </div>
+
+  <!-- ゲームオーバー -->
+  <div class="screen dim hidden" id="result">
+    <div class="panel">
+      <h2>ゲームオーバー</h2>
+      <p class="reason" id="overReason"></p>
+      <dl class="stats">
+        <dt>とどいたステージ</dt><dd>ステージ <b id="overStage">1</b></dd>
+        <dt>とくてん</dt><dd><b id="overScore">0</b>点</dd>
+      </dl>
+      <div class="records">
+        <div>最高得点 <b id="recScore">0</b>点 <span class="new hidden" id="newScore">NEW!</span></div>
+        <div>最高ステージ <b id="recStage">0</b> <span class="new hidden" id="newStage">NEW!</span></div>
+      </div>
+      <button class="btn" id="retryBtn">もう一度あそぶ</button>
+      <button class="btn sub" id="titleBtn">タイトルへ</button>
+    </div>
+  </div>
+
+  <!-- いまのバージョン（中身は pwa.js が service-worker.js の CACHE_VERSION から入れる） -->
+  <div class="version" id="version" aria-label="バージョン"></div>
+
+  <script src="script.js"></script>
+  <!-- オフライン対応と、新しいバージョンへの自動更新 -->
+  <script src="pwa.js"></script>
+</body>
+</html>
