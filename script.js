@@ -1,8 +1,8 @@
 // バルーンポップ！ ゲーム本体
-// ・ステージは無制限。1ステージ60秒で、目標点（ステージ1は200点、そのあと50点ずつ増える）をこえるとクリア
+// ・ステージは無制限。制限時間60秒のうちに目標点（ステージ1は200点、そのあと50点ずつ増える）に届いた瞬間にクリア
 // ・ふつうの風船10点、金色50点、にじ色は画面の風船をまとめてわる、時計は10秒のばす
 // ・5回つづけてわると +50点（コンボボーナス）。爆弾にさわるとライフが1へる（ライフ3、回復なし）
-// ・クリアすると星1〜3個。最高得点と最高到達ステージは localStorage に保存（アプリを更新しても消えない）
+// ・クリアの速さ（本当にかかった時間）と爆弾で星1〜3個。最高得点と最高到達ステージは localStorage に保存（アプリを更新しても消えない）
 (() => {
   'use strict';
 
@@ -25,10 +25,15 @@
   const SOUND_KEY = 'balloonSound';
 
   const targetOf = (stage) => FIRST_TARGET + TARGET_STEP * (stage - 1);
-  function starsOf(stageScore, target, bombsHit) {
-    if (stageScore < target) return 0;
-    if (stageScore >= target * 2 && bombsHit === 0) return 3;
-    if (stageScore >= target * 1.5) return 2;
+  // 星：スタートから本当にかかった時間で決める（時計で時間をのばしても、のびた分は得にならない）
+  //   ★3 … 30秒以内にクリア＋そのステージで爆弾に1回もさわっていない
+  //   ★2 … 40秒以内にクリア
+  //   ★1 … 時間内にクリア
+  const STAR3_SEC = 30;
+  const STAR2_SEC = 40;
+  function starsOf(clearSec, bombsHit) {
+    if (clearSec <= STAR3_SEC && bombsHit === 0) return 3;
+    if (clearSec <= STAR2_SEC) return 2;
     return 1;
   }
   // ステージが進むと、風船が速く・多くなり、爆弾も少しずつ増える
@@ -111,6 +116,7 @@
         [[72, 0], [76, 0.14], [79, 0.28], [84, 0.42], [79, 0.62], [84, 0.76]].forEach(([m, d]) => tone(midi(m), t + d, d > 0.7 ? 0.7 : 0.18, { type: 'square', vol: 0.12 }));
         [48, 55, 60].forEach((m) => tone(midi(m), t + 0.76, 0.7, { type: 'triangle', vol: 0.15 }));
       }),
+      star: (i) => play((t) => { const base = [84, 88, 91][i] || 91; [0, 7, 12].forEach((d, k) => tone(midi(base + d), t + k * 0.05, 0.45, { type: 'triangle', vol: 0.2 })); noise(t, 0.12, 0.25, 6000); }),
       over: () => play((t) => { [76, 72, 67, 60].forEach((m, i) => tone(midi(m), t + i * 0.2, 0.3, { type: 'triangle', vol: 0.2 })); }),
     };
 
@@ -309,7 +315,7 @@
   const state = {
     mode: 'title', prevMode: null,
     stage: 1, total: 0, stageScore: 0, lives: MAX_LIVES, time: STAGE_TIME,
-    combo: 0, bombsHit: 0, goalShown: false, introLeft: 0, endTimer: 0, overReason: '',
+    combo: 0, bombsHit: 0, elapsed: 0, clearSec: 0, stars: 0, introLeft: 0, endTimer: 0, overReason: '',
     spawnTimer: 0, decoTimer: 0, bag: [], lastTick: 0, shake: 0, spawned: {},
     bestScore: readInt(BEST_SCORE_KEY), bestStage: readInt(BEST_STAGE_KEY),
     bestScoreAtStart: 0, bestStageAtStart: 0,
@@ -373,11 +379,8 @@
   function addScore(n) {
     state.stageScore += n;
     state.total += n;
-    if (!state.goalShown && state.stageScore >= targetOf(state.stage)) {
-      state.goalShown = true;
-      banner('目標たっせい！', 'goal');
-      Sound.se.goal();
-    }
+    // 目標点に届いた瞬間にステージクリア（タイマーと風船はそこで止まる）
+    if (state.mode === 'play' && state.stageScore >= targetOf(state.stage)) clearStage();
   }
   function saveBest() {
     if (state.total > state.bestScore) { state.bestScore = state.total; store.set(BEST_SCORE_KEY, state.bestScore); }
@@ -493,12 +496,22 @@
     ring(b.x, b.y, '#ff8a1f', 2.2);
     particles.push({ x: b.x, y: b.y, vx: 0, vy: 0, life: 0.35, t: 0, flash: true, size: R * 2.2 });
   }
+  // ステージクリアの紙ふぶき（画面の上から、いろいろな色がひらひら落ちる）
+  function confetti() {
+    const cols = ['#ff4d6d', '#ff9f43', '#ffe14d', '#5ee06a', '#4ab3ff', '#9b6bff', '#ffffff'];
+    const n = Math.min(90, Math.round(W / 8));
+    for (let i = 0; i < n; i++) {
+      particles.push({ x: Math.random() * W, y: -R * (0.5 + Math.random() * 3), vx: (Math.random() - 0.5) * R * 2, vy: H * (0.28 + Math.random() * 0.2), fall: true,
+        life: 2.6 + Math.random() * 1.2, t: -Math.random() * 0.5, color: cols[i % cols.length], size: R * (0.1 + Math.random() * 0.08), spin: 4 + Math.random() * 8 });
+    }
+  }
   function ring(x, y, color, size, delay = 0) { particles.push({ x, y, vx: 0, vy: 0, life: 0.35, t: -delay, ring: true, color, size: R * size }); }
   function floatText(x, y, text, color, size) { texts.push({ x, y, text, color, size, t: 0, life: 0.9 }); }
   function updateEffects(dt) {
     for (const p of particles) {
       p.t += dt;
       if (p.t < 0) continue;
+      if (p.fall) { p.x += (p.vx + Math.sin(p.t * 3 + p.spin) * R * 1.5) * dt; p.y += p.vy * dt; continue; }
       p.x += p.vx * dt; p.y += p.vy * dt;
       p.vx *= 0.94; p.vy = p.vy * 0.94 + R * 6 * dt;
     }
@@ -645,13 +658,15 @@
     state.time = STAGE_TIME;
     state.combo = 0;
     state.bombsHit = 0;
-    state.goalShown = false;
+    state.elapsed = 0;
     state.spawnTimer = 0.3;
     state.spawned = {};
     state.lastTick = 0;
     balloons = [];
     state.bag = [];
     refillBag();
+    starTimers.forEach(clearTimeout);
+    starTimers = [];
     hide(el.clear);
     saveBest();                       // ここまで来た＝このステージに到達
     state.mode = 'intro';
@@ -661,32 +676,47 @@
     Sound.startBgm();
     updateHud();
   }
+  // 時間切れ（目標点に届いたら、その瞬間に clearStage になるので、ここに来るのは届かなかった時だけ）
   function endStage() {
     state.time = 0;
-    const target = targetOf(state.stage);
-    if (state.stageScore < target) {
-      state.overReason = '目標の ' + target + '点 に、とどかなかった';
-      return gameOver();
-    }
+    updateHud();
+    state.overReason = '目標の ' + targetOf(state.stage) + '点 に、とどかなかった';
+    gameOver();
+  }
+  // 目標点に届いた瞬間のステージクリア
+  let starTimers = [];
+  function clearStage() {
     state.mode = 'clear';
+    state.clearSec = state.elapsed;
+    state.stars = starsOf(state.clearSec, state.bombsHit);
     saveBest();
     Sound.stopBgm();
     Sound.se.clear();
-    // 残っている風船は、ぜんぶパチンと消す（点数なし）
-    balloons.forEach((b, i) => { if (b.y < H + b.r) burst(b, i * 0.03); });
-    balloons = [];
-    const stars = starsOf(state.stageScore, target, state.bombsHit);
+    confetti();
+    el.banner.className = 'banner';
     $('clearStage').textContent = state.stage;
+    $('clearTime').textContent = formatSec(state.clearSec);
     $('clearStageScore').textContent = state.stageScore;
-    $('clearTarget').textContent = target;
+    $('clearTarget').textContent = targetOf(state.stage);
     $('clearTotal').textContent = state.total;
-    const starEls = document.querySelectorAll('#stars .star');
-    starEls.forEach((s, i) => { s.className = 'star' + (i < stars ? ' on' : ''); s.style.animationDelay = (0.25 + i * 0.25) + 's'; });
-    $('stars').setAttribute('aria-label', '星 ' + stars + '個');
-    $('stars').dataset.count = stars;
+    $('clearBombs').textContent = state.bombsHit;
+    // 星を1個ずつ光らせる（とれた星だけ、光る音つき）
+    starTimers.forEach(clearTimeout);
+    starTimers = [];
+    document.querySelectorAll('#stars .star').forEach((s, i) => {
+      s.className = 'star';
+      if (i < state.stars) {
+        starTimers.push(setTimeout(() => { s.className = 'star on'; Sound.se.star(i); }, STAR_FIRST_MS + i * STAR_STEP_MS));
+      }
+    });
+    $('stars').setAttribute('aria-label', '星 ' + state.stars + '個');
+    $('stars').dataset.count = state.stars;
     updateHud();
     show(el.clear);
   }
+  const STAR_FIRST_MS = 600;   // クリア画面が出てから1個目の星が光るまで
+  const STAR_STEP_MS = 450;    // 星と星のあいだ
+  const formatSec = (sec) => (Math.floor(sec * 10) / 10).toFixed(1);
   function gameOver() {
     state.mode = 'over';
     saveBest();
@@ -704,6 +734,7 @@
     document.dispatchEvent(new Event('balloon:result'));
   }
   function goTitle() {
+    starTimers.forEach(clearTimeout);
     saveBest();
     state.mode = 'title';
     Sound.stopBgm();
@@ -782,12 +813,13 @@
   function update(dt) {
     if (state.mode === 'paused') return;
     updateEffects(dt);
-    moveBalloons(dt);
+    if (state.mode !== 'clear') moveBalloons(dt);   // クリアしたら、風船と爆弾はその場で止まる
     if (state.mode === 'intro') {
       state.introLeft -= dt;
       if (state.introLeft <= 0) { state.mode = 'play'; banner('スタート！', 'go'); }
     } else if (state.mode === 'play') {
       state.time -= dt;
+      state.elapsed += dt;
       const sec = Math.ceil(state.time);
       if (sec <= 5 && sec >= 1 && sec !== state.lastTick) { state.lastTick = sec; Sound.se.tick(); }
       state.spawnTimer -= dt;
@@ -838,12 +870,14 @@
     // 自動テスト用（tools/test.ps1）。遊び方には関係しない
     test: {
       state: () => ({ mode: state.mode, stage: state.stage, total: state.total, stageScore: state.stageScore, lives: state.lives,
-        time: state.time, combo: state.combo, bombsHit: state.bombsHit, target: targetOf(state.stage),
+        time: state.time, elapsed: state.elapsed, clearSec: state.clearSec, stars: state.stars, combo: state.combo, bombsHit: state.bombsHit, target: targetOf(state.stage),
         bestScore: state.bestScore, bestStage: state.bestStage, spawned: { ...state.spawned }, R, W, H }),
       balloons: () => balloons.filter((b) => !b.dead && !b.deco).map((b) => ({ id: b.id, kind: b.kind, x: b.x, y: b.y, r: b.r })),
-      spawn: (kind, x, y) => { const b = spawn(kind, { x, y, still: true }); b.amp = 0; return b.id; },
+      spawn: (kind, x, y, moving) => { const b = spawn(kind, { x, y, still: !moving }); if (!moving) b.amp = 0; return b.id; },
       clear: () => { balloons = []; },
       setTime: (sec) => { state.time = sec; },
+      setElapsed: (sec) => { state.elapsed = sec; },
+      setStageScore: (n) => { state.stageScore = n; },
       addScore: (n) => addScore(n),
       stars: starsOf,
       params: stageParams,
