@@ -3,6 +3,11 @@
 // ・ふつうの風船10点、金色50点、にじ色は画面の風船をまとめてわる、時計は10秒のばす
 // ・5回つづけてわると +50点（コンボボーナス）。爆弾（黒い風船）にさわるとライフが1へる（ライフ3、回復なし）
 // ・爆弾以外の風船を画面の上へにがすと、ライフが1へる（爆弾はにがしてもへらない）
+// ・ステージが進むと、とくべつな風船が出てくる（ver4〜）
+//     ステージ2〜 ハート（ライフ+1、満タンなら10点）／3〜 スロー（5秒間 風船が半分の速さ）／4〜 ×2（10秒間 ふつう・金色の得点2倍）
+//     5〜 ボーナスラッシュ（1ステージ1回、8秒間 風船がたくさん・爆弾なし・にがしてもOK）／6〜 フリーズ（3秒間 風船が止まる）
+//     7〜 ？（50点・+5秒・スロー・フリーズのどれか）。スローとフリーズは、あとからとった方が優先
+// ・5ステージごと（5・10・15…）のクリアは「SPECIAL CLEAR!」（花火・紙ふぶき・金色の星・ファンファーレ）
 // ・クリアの速さ（本当にかかった時間）と爆弾で星1〜3個。最高得点と最高到達ステージは localStorage に保存（アプリを更新しても消えない）
 (() => {
   'use strict';
@@ -12,7 +17,7 @@
   const FIRST_TARGET = 200;       // ステージ1の目標点
   const TARGET_STEP = 50;         // ステージごとに増える目標点
   const MAX_LIVES = 3;
-  const POINTS = { normal: 10, gold: 50, rainbow: 10, clock: 0 };
+  const POINTS = { normal: 10, gold: 50, rainbow: 10, clock: 0, heart: 10, slow: 10, double: 10, freeze: 10, mystery: 0 };
   const CLOCK_BONUS = 10;         // 時計の風船でのびる秒数
   const MAX_CLOCKS = 2;           // 1ステージに出る時計の数（のびるのは最大20秒）
   const COMBO_STEP = 5;           // 何回つづけてわるとボーナスか
@@ -20,6 +25,18 @@
   const INTRO_TIME = 1.8;         // 「ステージ○」を出している時間（秒）
   const END_DELAY = 1.0;          // ライフが0になってから、ゲームオーバー画面を出すまで（秒）
   const MAX_BALLOONS = 16;
+  // とくべつな風船・ボーナスラッシュ（ver4〜）
+  const FROM_STAGE = { heart: 2, slow: 3, double: 4, rush: 5, freeze: 6, mystery: 7 };   // 出てくるステージ
+  const SLOW_SEC = 5, SLOW_RATE = 0.5;    // スロー：5秒間、風船の動きが50%
+  const FREEZE_SEC = 3;                   // フリーズ：3秒間、風船が止まり、新しい風船も出ない
+  const DOUBLE_SEC = 10;                  // ×2：10秒間、ふつう・金色の風船の得点が2倍（コンボボーナスは2倍にしない）
+  const RUSH_SEC = 8;                     // ボーナスラッシュ：8秒間
+  const RUSH_INTERVAL = 0.32;             // ラッシュ中の風船の出る間隔（ふだんの何倍か）
+  const RUSH_MAX_BALLOONS = 24;
+  const MYSTERY_POINTS = 50, MYSTERY_TIME = 5;   // ？の風船：50点 または +5秒（+5秒は1ステージ1回まで。時計の2個とは別）
+  const MYSTERY_EFFECTS = ['points', 'time', 'slow', 'freeze'];
+  const SPECIAL_EVERY = 5;                // 5ステージごとに SPECIAL CLEAR!
+  const BAG_SIZE = 40;
 
   const BEST_SCORE_KEY = 'balloonBestScore';
   const BEST_STAGE_KEY = 'balloonBestStage';
@@ -37,13 +54,13 @@
     if (clearSec <= STAR2_SEC) return 2;
     return 1;
   }
-  // ステージが進むと、風船が速く・多くなり、爆弾も少しずつ増える
+  // ステージが進むと、風船が少しずつ速く・多くなり、爆弾も少しずつ増える（にがすとライフがへるので、上がり方はゆるやか）
   function stageParams(stage) {
     const s = stage - 1;
     return {
-      speed: Math.min(0.40, 0.15 + 0.022 * s),   // 1秒に上がる高さ（画面の高さに対する割合）
-      interval: Math.max(0.36, 0.78 - 0.04 * s), // 風船が出る間隔（秒、平均）
-      bombs: Math.min(6, 2 + Math.floor(s / 2)), // 20個のうちの爆弾の数
+      speed: Math.min(0.36, 0.15 + 0.018 * s),   // 1秒に上がる高さ（画面の高さに対する割合）
+      interval: Math.max(0.42, 0.78 - 0.035 * s), // 風船が出る間隔（秒、平均）
+      bombs: Math.min(5, 2 + Math.floor(s / 2)), // 20個あたりの爆弾の数
     };
   }
 
@@ -119,6 +136,23 @@
         [48, 55, 60].forEach((m) => tone(midi(m), t + 0.76, 0.7, { type: 'triangle', vol: 0.15 }));
       }),
       star: (i) => play((t) => { const base = [84, 88, 91][i] || 91; [0, 7, 12].forEach((d, k) => tone(midi(base + d), t + k * 0.05, 0.45, { type: 'triangle', vol: 0.2 })); noise(t, 0.12, 0.25, 6000); }),
+      // とくべつな風船・ボーナスラッシュ・SPECIAL CLEAR!（ver4〜）
+      heal: () => play((t) => { [72, 76, 79, 84, 88].forEach((m, i) => tone(midi(m), t + i * 0.07, 0.4, { type: 'sine', vol: 0.22 })); tone(midi(96), t + 0.35, 0.5, { type: 'triangle', vol: 0.12 }); noise(t + 0.3, 0.3, 0.15, 8000); }),
+      slow: () => play((t) => { tone(700, t, 0.7, { type: 'triangle', vol: 0.22, slide: 0.4 }); tone(350, t + 0.1, 0.7, { type: 'sine', vol: 0.14, slide: 0.5 }); }),
+      double: () => play((t) => { [[88, 0], [95, 0.08], [88, 0.2], [95, 0.28], [100, 0.36]].forEach(([m, d]) => tone(midi(m), t + d, 0.16, { type: 'square', vol: 0.1 })); }),
+      freeze: () => play((t) => { [96, 100, 103, 108].forEach((m, i) => tone(midi(m), t + i * 0.05, 0.6, { type: 'sine', vol: 0.12 })); noise(t, 0.4, 0.25, 9000); }),
+      mystery: () => play((t) => { [79, 74, 83, 78, 86, 91].forEach((m, i) => tone(midi(m), t + i * 0.055, 0.14, { type: 'square', vol: 0.09 })); }),
+      rush: () => play((t) => {
+        [[72, 0], [76, 0.09], [79, 0.18], [84, 0.27], [79, 0.4], [84, 0.49], [88, 0.58]].forEach(([m, d]) => tone(midi(m), t + d, d > 0.5 ? 0.45 : 0.12, { type: 'square', vol: 0.11 }));
+        noise(t, 0.3, 0.3, 5000);
+      }),
+      special: () => play((t) => {
+        const fan = [[67, 0], [72, 0.15], [76, 0.3], [79, 0.45], [84, 0.6], [79, 0.85], [84, 1.0], [88, 1.15], [91, 1.3]];
+        fan.forEach(([m, d]) => tone(midi(m), t + d, d >= 1.3 ? 1.0 : 0.2, { type: 'square', vol: 0.12 }));
+        fan.forEach(([m, d]) => tone(midi(m - 12), t + d, 0.25, { type: 'triangle', vol: 0.12 }));
+        [48, 55, 60, 64].forEach((m) => tone(midi(m), t + 1.3, 1.1, { type: 'triangle', vol: 0.13 }));
+        [0.5, 0.9, 1.3, 1.7, 2.1, 2.5].forEach((d) => noise(t + d, 0.35, 0.35, 1800));   // 花火の音
+      }),
       over: () => play((t) => { [76, 72, 67, 60].forEach((m, i) => tone(midi(m), t + i * 0.2, 0.3, { type: 'triangle', vol: 0.2 })); }),
     };
 
@@ -166,7 +200,7 @@
   const el = {
     hud: $('hud'), stageNum: $('stageNum'), timeNum: $('timeNum'), timeChip: $('timeChip'), lives: $('lives'),
     scoreNum: $('scoreNum'), stageScoreNum: $('stageScoreNum'), targetNum: $('targetNum'), goal: $('goal'), goalFill: $('goalFill'),
-    combo: $('combo'), banner: $('banner'), bonus: $('bonus'),
+    combo: $('combo'), effects: $('effects'), banner: $('banner'), bonus: $('bonus'),
     start: $('start'), pause: $('pause'), pauseMenu: $('pauseMenu'), confirm: $('confirm'), confirmText: $('confirmText'),
     clear: $('clear'), result: $('result'),
   };
@@ -176,11 +210,18 @@
   let W = 0, H = 0, DPR = 1, R = 36;
   let sprites = {};
 
-  // 風船の色（金色とまぎれないよう、黄色は使わない）
+  // ふつうの風船の色（金色とまぎれないよう黄色は使わない。ハートのピンク・スローの紫とまぎれないよう、ピンクと紫も使わない）
+  // とくべつな風船は、どれもまん中に白いマークがある（ふつうの風船にはマークがない）
   const COLORS = [
-    ['#ff5a6e', '#c41f3a'], ['#4aa8ff', '#1c63c9'], ['#4fd16a', '#1f9440'],
-    ['#ff9a3c', '#d9601a'], ['#ff7ac8', '#cf3d92'], ['#a77bff', '#6a3fd1'],
+    ['#ff5a6e', '#c41f3a'], ['#4aa8ff', '#1c63c9'], ['#4fd16a', '#1f9440'], ['#ff9a3c', '#d9601a'],
   ];
+  // とくべつな風船の色（グラデーションの3色・結び目の色・こわれた時のかけらの色）
+  const SPECIAL_LOOK = {
+    heart: { g: ['#ffe0ef', '#ff6fae', '#d81b72'], knot: '#d81b72', bit: '#ff6fae' },
+    slow: { g: ['#efe4ff', '#9a63ff', '#5626c0'], knot: '#5626c0', bit: '#9a63ff' },
+    double: { g: ['#fff4c4', '#ffc21a', '#c77700'], knot: '#a86400', bit: '#ffc21a' },
+    freeze: { g: ['#ffffff', '#c4ecff', '#5aaee0'], knot: '#4a9fd4', bit: '#c4ecff' },
+  };
 
   function resize() {
     W = window.innerWidth;
@@ -250,6 +291,16 @@
       const g = c.createRadialGradient(-0.35 * r, -0.5 * r, 0.1 * r, 0, 0, 1.3 * r);
       g.addColorStop(0, '#8a8d9c'); g.addColorStop(0.3, '#33353f'); g.addColorStop(1, '#09090d');
       c.fillStyle = g; knot = '#111116';
+    } else if (kind === 'mystery') {
+      // ？：ピンク〜紫〜青のカラフルな紫系
+      const g = c.createLinearGradient(-r, -1.2 * r, r, 1.1 * r);
+      g.addColorStop(0, '#ff7ad9'); g.addColorStop(0.45, '#a855f7'); g.addColorStop(1, '#3f3fd8');
+      c.fillStyle = g; knot = '#3f3fd8';
+    } else if (SPECIAL_LOOK[kind]) {
+      const [a, b, d] = SPECIAL_LOOK[kind].g;
+      const g = c.createRadialGradient(-0.35 * r, -0.5 * r, 0.1 * r, 0, 0, 1.3 * r);
+      g.addColorStop(0, a); g.addColorStop(0.42, b); g.addColorStop(1, d);
+      c.fillStyle = g; knot = SPECIAL_LOOK[kind].knot;
     } else {
       const [light, dark] = COLORS[colorIndex];
       const g = c.createRadialGradient(-0.35 * r, -0.5 * r, 0.1 * r, 0, 0, 1.3 * r);
@@ -274,7 +325,74 @@
     }
     drawShine(c, r);
     if (kind === 'bomb') drawBombMark(c, r);
+    else if (MARKS[kind]) MARKS[kind](c, r);
   }
+  // とくべつな風船のまん中のマーク
+  const MARK_Y = -0.08;   // マークの中心（r に対する割合）
+  function badge(c, r, fill, stroke) {
+    c.fillStyle = fill; c.strokeStyle = stroke; c.lineWidth = r * 0.07;
+    c.beginPath(); c.arc(0, MARK_Y * r, 0.52 * r, 0, Math.PI * 2); c.fill(); c.stroke();
+  }
+  function markText(c, r, text, size, fill, stroke) {
+    c.font = '900 ' + Math.round(size * r) + 'px ' + FONT;
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+    if (stroke) { c.strokeStyle = stroke; c.lineWidth = r * 0.14; c.strokeText(text, 0, (MARK_Y + 0.04) * r); }
+    c.fillStyle = fill; c.fillText(text, 0, (MARK_Y + 0.04) * r);
+  }
+  const MARKS = {
+    // ハート：白いハート
+    heart(c, r) {
+      const y = MARK_Y * r, s = 0.5 * r;
+      c.beginPath();
+      c.moveTo(0, y + 0.42 * s);
+      c.bezierCurveTo(-1.05 * s, y - 0.25 * s, -0.55 * s, y - 0.95 * s, 0, y - 0.45 * s);
+      c.bezierCurveTo(0.55 * s, y - 0.95 * s, 1.05 * s, y - 0.25 * s, 0, y + 0.42 * s);
+      c.closePath();
+      c.fillStyle = '#fff'; c.strokeStyle = '#c0136a'; c.lineWidth = r * 0.06; c.lineJoin = 'round';
+      c.fill(); c.stroke();
+    },
+    // スロー：白い丸の中に、紫のかたつむり
+    slow(c, r) {
+      badge(c, r, '#fff', '#5626c0');
+      const y = MARK_Y * r;
+      c.strokeStyle = '#6a35d8'; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.lineWidth = r * 0.11;
+      c.beginPath(); c.moveTo(-0.36 * r, y + 0.24 * r); c.lineTo(0.32 * r, y + 0.24 * r); c.stroke();            // からだ
+      c.lineWidth = r * 0.05;
+      c.beginPath(); c.moveTo(-0.3 * r, y + 0.2 * r); c.lineTo(-0.38 * r, y - 0.06 * r);
+      c.moveTo(-0.24 * r, y + 0.2 * r); c.lineTo(-0.2 * r, y - 0.06 * r); c.stroke();                               // つの
+      c.fillStyle = '#b48cff'; c.lineWidth = r * 0.07;
+      c.beginPath(); c.arc(0.06 * r, y - 0.02 * r, 0.25 * r, 0, Math.PI * 2); c.fill(); c.stroke();                  // から
+      c.lineWidth = r * 0.05;
+      c.beginPath(); c.arc(0.06 * r, y - 0.02 * r, 0.12 * r, Math.PI * 0.2, Math.PI * 1.9); c.stroke();             // うずまき
+    },
+    // ×2：赤い丸に白い「×2」（金色50点の風船にはマークがないので、ひと目で区別できる）
+    double(c, r) {
+      badge(c, r, '#e8303f', '#fff');
+      markText(c, r, '×2', 0.56, '#fff');
+    },
+    // フリーズ：雪の結晶
+    freeze(c, r) {
+      const y = MARK_Y * r, L = 0.46 * r;
+      const flake = (w, col) => {
+        c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round';
+        c.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2, sx = Math.sin(a), cy = -Math.cos(a);
+          c.moveTo(0, y); c.lineTo(sx * L, y + cy * L);
+          for (const side of [-1, 1]) {
+            const b = a + side * 0.7, bx = 0.55 * L * sx, by = y + 0.55 * L * cy;
+            c.moveTo(bx, by); c.lineTo(bx + Math.sin(b) * 0.24 * L, by - Math.cos(b) * 0.24 * L);
+          }
+        }
+        c.stroke();
+      };
+      flake(r * 0.2, '#2a86c9');
+      flake(r * 0.09, '#fff');
+    },
+    // ？：大きな白い「？」
+    mystery(c, r) { markText(c, r, '？', 0.95, '#fff', '#5b21b6'); },
+  };
   // 黒い風船のまん中の爆弾の絵（白いふちどりで、黒い風船の上でもはっきり見える。火花は draw() で毎フレーム描く）
   const BOMB_SPARK = [0.5, -0.74];   // 導火線の先（r に対する割合）
   function drawBombMark(c, r) {
@@ -309,7 +427,7 @@
   function buildSprites() {
     sprites = { dpr: DPR };
     COLORS.forEach((_, i) => { sprites['n' + i] = makeSprite('normal', i); });
-    ['gold', 'rainbow', 'clock', 'bomb'].forEach((k) => { sprites[k] = makeSprite(k); });
+    ['gold', 'rainbow', 'clock', 'bomb', 'heart', 'slow', 'double', 'freeze', 'mystery'].forEach((k) => { sprites[k] = makeSprite(k); });
   }
   // スタート画面の説明の小さな絵
   function drawRuleIcons() {
@@ -330,6 +448,7 @@
     stage: 1, total: 0, stageScore: 0, lives: MAX_LIVES, time: STAGE_TIME,
     combo: 0, bombsHit: 0, elapsed: 0, clearSec: 0, stars: 0, introLeft: 0, endTimer: 0, overReason: '',
     spawnTimer: 0, decoTimer: 0, bag: [], lastTick: 0, shake: 0, spawned: {},
+    motion: null, doubleLeft: 0, rushLeft: 0, rushDone: false, rushAt: Infinity, rushConfetti: 0, mysteryTimeUsed: false, lastMystery: null, special: false, savedByRush: 0,
     lostBy: { bomb: 0, escape: 0 }, escaped: {},   // ライフがへった理由ごとの回数・上へにげた風船の数（このゲームの合計）
     bestScore: readInt(BEST_SCORE_KEY), bestStage: readInt(BEST_STAGE_KEY),
     bestScoreAtStart: 0, bestStageAtStart: 0,
@@ -339,18 +458,21 @@
   let texts = [];
   let nextId = 1;
 
-  // 20個ずつの袋から順に出す（種類の割合が毎回ほぼ同じになり、同じ種類が続きすぎない）
+  // 40個ずつの袋から順に出す（種類の割合が毎回ほぼ同じになり、同じ種類が続きすぎない）
+  //   金色4（10%）・にじ色2（5%）・時計（1ステージ2個まで）・爆弾（ステージで4〜10個）
+  //   とくべつな風船は、出てくるステージから1個ずつ（それぞれ2.5%）。のこりはぜんぶ、ふつうの風船
   function refillBag() {
     const p = stageParams(state.stage);
-    const bag = ['gold', 'gold', 'rainbow'];
-    bag.push((state.spawned.clock || 0) + state.bag.filter((k) => k === 'clock').length < MAX_CLOCKS ? 'clock' : 'normal');
-    for (let i = 0; i < p.bombs; i++) bag.push('bomb');
-    while (bag.length < 20) bag.push('normal');
+    const bag = ['gold', 'gold', 'gold', 'gold', 'rainbow', 'rainbow'];
+    for (let n = state.spawned.clock || 0; n < MAX_CLOCKS; n++) bag.push('clock');
+    for (const k of ['heart', 'slow', 'double', 'freeze', 'mystery']) if (state.stage >= FROM_STAGE[k]) bag.push(k);
+    for (let i = 0; i < p.bombs * 2; i++) bag.push('bomb');
+    while (bag.length < BAG_SIZE) bag.push('normal');
     for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
     state.bag = bag;
   }
-  const SPEED_OF = { normal: 1, gold: 1.35, rainbow: 1.1, clock: 1.15, bomb: 0.95 };
-  const SCALE_OF = { normal: 1, gold: 0.9, rainbow: 1, clock: 1, bomb: 0.95 };
+  const SPEED_OF = { normal: 1, gold: 1.35, rainbow: 1.1, clock: 1.15, bomb: 0.95, heart: 1.15, slow: 1.05, double: 1.2, freeze: 1.05, mystery: 1.1 };
+  const SCALE_OF = { normal: 1, gold: 0.9, rainbow: 1, clock: 1, bomb: 0.95, heart: 1, slow: 1, double: 0.95, freeze: 1, mystery: 1 };
 
   function spawn(kind, opts = {}) {
     const p = stageParams(state.stage);
@@ -371,7 +493,7 @@
       x0, x: x0, y: opts.y != null ? opts.y : H + 1.6 * r,
       amp, freq: 0.35 + Math.random() * 0.35, phase: Math.random() * Math.PI * 2, age: 0, tilt: 0,
       speed: opts.still ? 0 : H * p.speed * SPEED_OF[kind] * (0.88 + Math.random() * 0.24),
-      deco: !!opts.deco, dead: false,
+      deco: !!opts.deco, rush: !!opts.rush, dead: false,   // rush：ボーナスラッシュで出た風船（にがしてもライフはへらない）
     };
     if (!b.deco) state.spawned[kind] = (state.spawned[kind] || 0) + 1;
     balloons.push(b);
@@ -433,22 +555,19 @@
         if (o !== b && !o.dead && !o.deco && o.kind !== 'bomb' && o.y < H + o.r && o.y > -o.r) popped.push(o);
       }
     }
-    let gained = 0;
+    // ×2 は、このタップの前から続いている時だけ（×2の風船をわったタップでは、まだ2倍にならない）
+    const dbl = state.doubleLeft > 0;
+    let gained = 0, healed = false;
     popped.forEach((p, i) => {
       p.dead = true;
       burst(p, i * 0.04);
-      const pts = POINTS[p.kind];
-      gained += pts;
-      if (p.kind === 'clock') {
-        state.time += CLOCK_BONUS;
-        floatText(p.x, p.y, '+' + CLOCK_BONUS + '秒', '#1b8fc0', 1.1);
-      } else {
-        floatText(p.x, p.y, '+' + pts, p.kind === 'gold' ? '#d48a00' : '#ff4f7a', p.kind === 'gold' ? 1.25 : 1);
-      }
+      const r = popEffect(p, dbl);
+      gained += r.pts;
+      if (r.healed) healed = true;
     });
     state.combo++;
     if (state.combo % COMBO_STEP === 0) {
-      gained += COMBO_BONUS;
+      gained += COMBO_BONUS;                 // コンボボーナスは2倍にしない
       showBonus(state.combo + 'コンボ！ +' + COMBO_BONUS);
       Sound.se.combo();
     }
@@ -456,8 +575,104 @@
     if (b.kind === 'rainbow') Sound.se.rainbow();
     else if (b.kind === 'gold') Sound.se.gold();
     else if (b.kind === 'clock') Sound.se.clock();
+    else if (b.kind === 'heart') (healed ? Sound.se.heal : Sound.se.pop)();
+    else if (Sound.se[b.kind] && b.kind !== 'normal') Sound.se[b.kind]();
     else Sound.se.pop();
     balloons = balloons.filter((o) => !o.dead);
+  }
+  // 1個の風船がわれた時の得点と効果（タップでも、にじ色のまとめわりでも同じ）
+  function popEffect(p, dbl) {
+    let pts = POINTS[p.kind];
+    if (dbl && (p.kind === 'normal' || p.kind === 'gold')) pts *= 2;
+    let healed = false, label = null, color = '#ff4f7a', size = 1;
+    if (p.kind === 'clock') {
+      state.time += CLOCK_BONUS;
+      label = '+' + CLOCK_BONUS + '秒'; color = '#1b8fc0'; size = 1.1;
+    } else if (p.kind === 'heart') {
+      if (state.lives < MAX_LIVES) { pts = 0; healed = true; healLife(); label = 'ライフ+1'; color = '#e8247a'; size = 1.15; }
+    } else if (p.kind === 'slow') {
+      setMotion('slow'); banner('SLOW!', 'eff slow');
+    } else if (p.kind === 'freeze') {
+      setMotion('freeze'); banner('FREEZE!', 'eff freeze');
+    } else if (p.kind === 'double') {
+      state.doubleLeft = DOUBLE_SEC; banner('SCORE ×2!', 'eff double');
+    } else if (p.kind === 'mystery') {
+      const m = mysteryEffect();
+      pts += m.pts; label = m.label; color = '#8b2fd6'; size = 1.15;
+    }
+    if (!label) {
+      label = '+' + pts;
+      if (p.kind === 'gold') { color = '#d48a00'; size = 1.25; }
+      if (pts > POINTS[p.kind]) label += ' ×2';
+    }
+    floatText(p.x, p.y, label, color, size);
+    return { pts, healed };
+  }
+  // スロー・フリーズ（ひとつの枠を使うので、あとからとった方が優先。同じものをもう一度とると、時間が最初にもどる）
+  function setMotion(kind) {
+    state.motion = { kind, left: kind === 'freeze' ? FREEZE_SEC : SLOW_SEC };
+  }
+  const motionRate = () => !state.motion ? 1 : state.motion.kind === 'freeze' ? 0 : SLOW_RATE;
+  // ？の風船：4つのうちどれか（悪い効果はない）。+5秒は1ステージ1回まで（2回目からは、ほかの3つから）
+  let forcedMystery = null;   // 自動テスト用
+  function mysteryEffect() {
+    const opts = MYSTERY_EFFECTS.filter((k) => k !== 'time' || !state.mysteryTimeUsed);
+    let pick = forcedMystery && opts.includes(forcedMystery) ? forcedMystery : opts[Math.floor(Math.random() * opts.length)];
+    forcedMystery = null;
+    state.lastMystery = pick;
+    if (pick === 'points') { banner('？ → +' + MYSTERY_POINTS + '点！', 'eff mystery'); return { pts: MYSTERY_POINTS, label: '+' + MYSTERY_POINTS }; }
+    if (pick === 'time') {
+      state.time += MYSTERY_TIME; state.mysteryTimeUsed = true;
+      banner('？ → +' + MYSTERY_TIME + '秒！', 'eff mystery'); return { pts: 0, label: '+' + MYSTERY_TIME + '秒' };
+    }
+    setMotion(pick);
+    banner(pick === 'slow' ? '？ → SLOW!' : '？ → FREEZE!', 'eff mystery');
+    return { pts: 0, label: pick === 'slow' ? 'スロー' : 'フリーズ' };
+  }
+  // ライフを1ふやす（ハートの風船だけ。最大3）。もどったハートが光る
+  function healLife() {
+    state.lives = Math.min(MAX_LIVES, state.lives + 1);
+    updateHud();
+    const heart = el.lives.querySelectorAll('.heart')[state.lives - 1];
+    if (heart) { heart.classList.remove('hit', 'heal'); void heart.offsetWidth; heart.classList.add('heal'); }
+    el.lives.classList.remove('hurt', 'healed'); void el.lives.offsetWidth; el.lives.classList.add('healed');
+  }
+  // ボーナスラッシュ（ステージ5から、1ステージ1回）
+  function startRush() {
+    state.rushDone = true;
+    state.rushLeft = RUSH_SEC;
+    state.rushConfetti = 0;
+    state.spawnTimer = 0.1;
+    document.body.classList.add('rush');
+    banner('BONUS RUSH!', 'eff rush');
+    Sound.se.rush();
+  }
+  function endRush() {
+    state.rushLeft = 0;
+    document.body.classList.remove('rush');
+  }
+  // ステージが変わる時・クリアした時・ゲームが終わる時は、とくべつな効果をぜんぶ消す
+  function clearEffects() {
+    state.motion = null;
+    state.doubleLeft = 0;
+    state.mysteryTimeUsed = false;
+    endRush();
+    // ゲームオーバー・タイトルでは表示の更新がないので、ここで消しておく
+    document.body.classList.remove('slowfx', 'freezefx');
+    el.effects.replaceChildren();
+    hudCache.fx = '';
+  }
+  // 毎フレーム：効果ののこり時間をへらす（プレイ中だけ。一時停止中・クリア後は止まる）
+  function tickEffects(dt) {
+    if (state.motion) { state.motion.left -= dt; if (state.motion.left <= 0) state.motion = null; }
+    if (state.doubleLeft > 0) state.doubleLeft = Math.max(0, state.doubleLeft - dt);
+    if (state.stage >= FROM_STAGE.rush && !state.rushDone && state.elapsed >= state.rushAt) startRush();
+    if (state.rushLeft > 0) {
+      state.rushLeft -= dt;
+      state.rushConfetti -= dt;
+      if (state.rushConfetti <= 0) { state.rushConfetti = 0.45; confetti(0.12); }
+      if (state.rushLeft <= 0) endRush();
+    }
   }
   function hitBomb(b) {
     b.dead = true;
@@ -475,7 +690,15 @@
     state.escaped[b.kind] = (state.escaped[b.kind] || 0) + 1;
     if (b.kind === 'bomb') return;
     const y = el.hud.getBoundingClientRect().bottom + R * 0.9;
-    floatText(Math.min(Math.max(b.x, R * 2.5), W - R * 2.5), y, 'にげた！ ライフ-1', '#e0303a', 1);
+    const x = Math.min(Math.max(b.x, R * 2.5), W - R * 2.5);
+    // ボーナスラッシュ中ににげた風船・ラッシュで出た風船は、ライフがへらない（コンボだけ0にもどる）
+    if (state.rushLeft > 0 || b.rush) {
+      state.combo = 0;
+      state.savedByRush = (state.savedByRush || 0) + 1;
+      floatText(x, y, 'セーフ！', '#e08a00', 0.9);
+      return;
+    }
+    floatText(x, y, 'にげた！ ライフ-1', '#e0303a', 1);
     state.shake = 0.25;
     Sound.se.escape();
     loseLife('escape');
@@ -486,8 +709,8 @@
     state.combo = 0;
     state.lostBy[cause]++;
     const heart = el.lives.querySelectorAll('.heart')[state.lives];
-    if (heart) { heart.classList.remove('hit'); void heart.offsetWidth; heart.classList.add('hit'); }
-    el.lives.classList.remove('hurt'); void el.lives.offsetWidth; el.lives.classList.add('hurt');
+    if (heart) { heart.classList.remove('hit', 'heal'); void heart.offsetWidth; heart.classList.add('hit'); }
+    el.lives.classList.remove('hurt', 'healed'); void el.lives.offsetWidth; el.lives.classList.add('hurt');
     try { if (navigator.vibrate && navigator.userActivation && navigator.userActivation.isActive) navigator.vibrate(120); } catch (e) { /* 対応していない時は何もしない */ }
     if (state.lives <= 0) {
       state.mode = 'ending';
@@ -507,7 +730,8 @@
 
   // ---------- 演出 ----------
   function burst(b, delay = 0) {
-    const col = b.kind === 'gold' ? '#ffd23f' : b.kind === 'clock' ? '#6fd6f5' : b.kind === 'rainbow' ? null : COLORS[b.color][0];
+    const col = b.kind === 'gold' ? '#ffd23f' : b.kind === 'clock' ? '#6fd6f5' : b.kind === 'rainbow' ? null : b.kind === 'mystery' ? '#a855f7'
+      : SPECIAL_LOOK[b.kind] ? SPECIAL_LOOK[b.kind].bit : COLORS[b.color][0];
     const rainbow = ['#ff4d6d', '#ff9f43', '#ffe14d', '#5ee06a', '#4ab3ff', '#9b6bff'];
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2 + Math.random() * 0.4;
@@ -530,13 +754,28 @@
     ring(b.x, b.y, '#ff8a1f', 2.2);
     particles.push({ x: b.x, y: b.y, vx: 0, vy: 0, life: 0.35, t: 0, flash: true, size: R * 2.2 });
   }
-  // ステージクリアの紙ふぶき（画面の上から、いろいろな色がひらひら落ちる）
-  function confetti() {
+  // ステージクリアの紙ふぶき（画面の上から、いろいろな色がひらひら落ちる）。amount で量をかえる（ボーナスラッシュ中は少しずつ）
+  function confetti(amount = 1) {
     const cols = ['#ff4d6d', '#ff9f43', '#ffe14d', '#5ee06a', '#4ab3ff', '#9b6bff', '#ffffff'];
-    const n = Math.min(90, Math.round(W / 8));
+    const n = Math.max(3, Math.round(Math.min(90, Math.round(W / 8)) * amount));
     for (let i = 0; i < n; i++) {
       particles.push({ x: Math.random() * W, y: -R * (0.5 + Math.random() * 3), vx: (Math.random() - 0.5) * R * 2, vy: H * (0.28 + Math.random() * 0.2), fall: true,
         life: 2.6 + Math.random() * 1.2, t: -Math.random() * 0.5, color: cols[i % cols.length], size: R * (0.1 + Math.random() * 0.08), spin: 4 + Math.random() * 8 });
+    }
+  }
+  // SPECIAL CLEAR! の花火（6発。パネルにかくれない画面の上と下で交互に。スマホでも重くならないよう、1発28個まで）
+  function fireworks() {
+    const cols = ['#ff4d6d', '#ffd23f', '#4ab3ff', '#5ee06a', '#ff7ad9', '#ff9f43'];
+    for (let k = 0; k < 6; k++) {
+      const x = W * (0.15 + Math.random() * 0.7), y = k % 2 === 0 ? H * (0.05 + Math.random() * 0.16) : H * (0.8 + Math.random() * 0.12), delay = 0.35 + k * 0.4, col = cols[k % cols.length];
+      for (let i = 0; i < 28; i++) {
+        const a = (i / 28) * Math.PI * 2, sp = R * (5 + Math.random() * 2.5);
+        particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1.1 + Math.random() * 0.3, t: -delay,
+          color: i % 4 === 0 ? '#fffbe0' : col, size: R * 0.08, spin: 0 });
+      }
+      for (let i = 0; i < 5; i++) particles.push({ x, y, vx: (Math.random() - 0.5) * R * 6, vy: (Math.random() - 0.7) * R * 6,
+        life: 1.2, t: -delay, color: '#ffe14d', size: R * 0.2, star: true, spin: 0 });
+      ring(x, y, col, 3, delay);
     }
   }
   function ring(x, y, color, size, delay = 0) { particles.push({ x, y, vx: 0, vy: 0, life: 0.35, t: -delay, ring: true, color, size: R * size }); }
@@ -555,8 +794,10 @@
     if (state.shake > 0) state.shake = Math.max(0, state.shake - dt);
   }
   let bannerTimer = null;
-  function banner(text, kind = '') {
+  // sub：大きな文字の下に出す小さな文字（新しい風船のお知らせなど）
+  function banner(text, kind = '', sub = '') {
     el.banner.textContent = text;
+    if (sub) { const s = document.createElement('small'); s.textContent = sub; el.banner.appendChild(s); }
     el.banner.className = 'banner';
     void el.banner.offsetWidth;          // アニメーションを最初から動かすため
     el.banner.className = 'banner show ' + kind;
@@ -673,6 +914,19 @@
       el.lives.setAttribute('aria-label', 'ライフ ' + state.lives);
     }
     setText('combo', el.combo, state.combo >= 2 ? state.combo + 'コンボ' : '');
+    // とくべつな効果ののこり時間（画面の上に「SLOW あと○秒」などを出す）
+    const fx = [];
+    const left = (s) => ' あと' + Math.max(1, Math.ceil(s)) + '秒';
+    if (state.rushLeft > 0) fx.push(['rush', 'BONUS RUSH!' + left(state.rushLeft)]);
+    if (state.motion) fx.push([state.motion.kind, (state.motion.kind === 'freeze' ? 'FREEZE' : 'SLOW') + left(state.motion.left)]);
+    if (state.doubleLeft > 0) fx.push(['double', 'SCORE ×2' + left(state.doubleLeft)]);
+    const key = fx.map((f) => f.join(':')).join('|');
+    if (hudCache.fx !== key) {
+      hudCache.fx = key;
+      el.effects.replaceChildren(...fx.map(([k, t]) => { const s = document.createElement('span'); s.className = 'fx ' + k; s.textContent = t; return s; }));
+      document.body.classList.toggle('slowfx', !!state.motion && state.motion.kind === 'slow');
+      document.body.classList.toggle('freezefx', !!state.motion && state.motion.kind === 'freeze');
+    }
   }
 
   // ---------- ゲームの流れ ----------
@@ -683,8 +937,8 @@
     state.lives = MAX_LIVES;
     state.lostBy = { bomb: 0, escape: 0 };
     state.escaped = {};
-    el.lives.classList.remove('hurt');
-    el.lives.querySelectorAll('.heart').forEach((h) => h.classList.remove('hit'));
+    el.lives.classList.remove('hurt', 'healed');
+    el.lives.querySelectorAll('.heart').forEach((h) => h.classList.remove('hit', 'heal'));
     state.bestScoreAtStart = state.bestScore;
     state.bestStageAtStart = state.bestStage;
     [el.start, el.result, el.clear, el.pause].forEach(hide);
@@ -704,13 +958,17 @@
     balloons = [];
     state.bag = [];
     refillBag();
+    clearEffects();                   // 前のステージの効果は持ちこさない
+    state.rushDone = false;
+    state.rushAt = state.stage >= FROM_STAGE.rush ? 12 + Math.random() * 14 : Infinity;   // ラッシュが始まる時間（スタートから12〜26秒）
+    state.savedByRush = 0;
     starTimers.forEach(clearTimeout);
     starTimers = [];
     hide(el.clear);
     saveBest();                       // ここまで来た＝このステージに到達
     state.mode = 'intro';
     state.introLeft = INTRO_TIME;
-    banner('ステージ ' + state.stage + '\n目標 ' + targetOf(state.stage) + '点', 'intro');
+    banner('ステージ ' + state.stage + '\n目標 ' + targetOf(state.stage) + '点', 'intro', NEW_AT[state.stage] ? 'NEW! ' + NEW_AT[state.stage] : '');
     Sound.se.start();
     Sound.startBgm();
     updateHud();
@@ -722,16 +980,26 @@
     state.overReason = '目標の ' + targetOf(state.stage) + '点 に、とどかなかった';
     gameOver();
   }
-  // 目標点に届いた瞬間のステージクリア
+  // そのステージで初めて出てくるもの（「ステージ○」の下にお知らせ）
+  const NEW_AT = {
+    [FROM_STAGE.heart]: 'ハートの風船：ライフ+1', [FROM_STAGE.slow]: 'スローの風船：ゆっくりになる', [FROM_STAGE.double]: '×2の風船：得点2倍',
+    [FROM_STAGE.rush]: 'ボーナスラッシュが来るかも', [FROM_STAGE.freeze]: 'フリーズの風船：風船が止まる', [FROM_STAGE.mystery]: '？の風船：なにかいいこと',
+  };
+  // 目標点に届いた瞬間のステージクリア（5ステージごとは SPECIAL CLEAR!）
   let starTimers = [];
   function clearStage() {
     state.mode = 'clear';
     state.clearSec = state.elapsed;
     state.stars = starsOf(state.clearSec, state.bombsHit);
+    clearEffects();
     saveBest();
     Sound.stopBgm();
-    Sound.se.clear();
-    confetti();
+    const special = state.stage % SPECIAL_EVERY === 0;
+    state.special = special;
+    el.clear.classList.toggle('special', special);
+    el.clear.querySelector('.stageClear span').textContent = special ? 'SPECIAL' : 'STAGE';
+    el.clear.querySelector('.stageClear').setAttribute('aria-label', special ? 'スペシャルクリア' : 'ステージクリア');
+    if (special) { Sound.se.special(); confetti(1.6); fireworks(); } else { Sound.se.clear(); confetti(); }
     el.banner.className = 'banner';
     $('clearStage').textContent = state.stage;
     $('clearTime').textContent = formatSec(state.clearSec);
@@ -758,6 +1026,7 @@
   const formatSec = (sec) => (Math.floor(sec * 10) / 10).toFixed(1);
   function gameOver() {
     state.mode = 'over';
+    clearEffects();
     saveBest();
     Sound.stopBgm();
     Sound.se.over();
@@ -776,6 +1045,8 @@
     starTimers.forEach(clearTimeout);
     saveBest();
     state.mode = 'title';
+    clearEffects();
+    updateHud();
     Sound.stopBgm();
     balloons = [];
     [el.hud, el.result, el.clear, el.pause].forEach(hide);
@@ -852,7 +1123,8 @@
   function update(dt) {
     if (state.mode === 'paused') return;
     updateEffects(dt);
-    if (state.mode !== 'clear') moveBalloons(dt);   // クリアしたら、風船と爆弾はその場で止まる
+    // クリアしたら、風船と爆弾はその場で止まる。スロー中は半分の速さ、フリーズ中は止まる（制限時間はふつうに進む）
+    if (state.mode !== 'clear') moveBalloons(dt * motionRate());
     if (state.mode === 'intro') {
       state.introLeft -= dt;
       if (state.introLeft <= 0) { state.mode = 'play'; banner('スタート！', 'go'); }
@@ -861,16 +1133,20 @@
       state.elapsed += dt;
       const sec = Math.ceil(state.time);
       if (sec <= 5 && sec >= 1 && sec !== state.lastTick) { state.lastTick = sec; Sound.se.tick(); }
-      state.spawnTimer -= dt;
+      tickEffects(dt);
+      if (motionRate() > 0) state.spawnTimer -= dt;   // フリーズ中は新しい風船も出ない
       if (state.spawnTimer <= 0) {
-        const p = stageParams(state.stage);
-        state.spawnTimer = p.interval * (0.7 + Math.random() * 0.6);
-        if (balloons.length < MAX_BALLOONS) {
+        const p = stageParams(state.stage), rush = state.rushLeft > 0;
+        state.spawnTimer = p.interval * (rush ? RUSH_INTERVAL : 1) * (0.7 + Math.random() * 0.6);
+        if (rush) {
+          // ボーナスラッシュ：ふつうと金色だけ（爆弾は出ない）。袋は使わないので、ラッシュのあとは元の割合にもどる
+          if (balloons.length < RUSH_MAX_BALLOONS) spawn(Math.random() < 0.2 ? 'gold' : 'normal', { rush: true });
+        } else if (balloons.length < MAX_BALLOONS) {
           if (!state.bag.length) refillBag();
           spawn(state.bag.pop());
         }
       }
-      if (state.time <= 0) endStage();
+      if (state.time <= 0 && state.mode === 'play') endStage();
     } else if (state.mode === 'ending') {
       state.endTimer -= dt;
       if (state.endTimer <= 0) gameOver();
@@ -911,12 +1187,21 @@
       state: () => ({ mode: state.mode, stage: state.stage, total: state.total, stageScore: state.stageScore, lives: state.lives,
         time: state.time, elapsed: state.elapsed, clearSec: state.clearSec, stars: state.stars, combo: state.combo, bombsHit: state.bombsHit, target: targetOf(state.stage),
         lostBy: { ...state.lostBy }, escaped: { ...state.escaped }, overReason: state.overReason,
+        motion: state.motion ? { ...state.motion } : null, doubleLeft: state.doubleLeft, rushLeft: state.rushLeft, rushDone: state.rushDone, rushAt: state.rushAt,
+        mysteryTimeUsed: state.mysteryTimeUsed, lastMystery: state.lastMystery, savedByRush: state.savedByRush, special: !!state.special,
         bestScore: state.bestScore, bestStage: state.bestStage, spawned: { ...state.spawned }, R, W, H }),
       balloons: () => balloons.filter((b) => !b.dead && !b.deco).map((b) => ({ id: b.id, kind: b.kind, x: b.x, y: b.y, r: b.r })),
       spawn: (kind, x, y, moving) => { const b = spawn(kind, { x, y, still: !moving }); if (!moving) b.amp = 0; return b.id; },
       clear: () => { balloons = []; },
       setTime: (sec) => { state.time = sec; },
       setLives: (n) => { state.lives = n; },
+      setStage: (n) => { state.stage = n; },
+      startRush: () => { if (state.mode === 'play') startRush(); },
+      setRushAt: (sec) => { state.rushAt = sec; },
+      nextMystery: (k) => { forcedMystery = k; },
+      particles: () => particles.length,
+      bag: () => state.bag.slice(),
+      refillBag: () => { state.bag = []; refillBag(); return state.bag.slice(); },
       setElapsed: (sec) => { state.elapsed = sec; },
       setStageScore: (n) => { state.stageScore = n; },
       addScore: (n) => addScore(n),

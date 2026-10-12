@@ -54,6 +54,8 @@
       </div>
     </div>
     <div class="combo" id="combo"></div>
+    <!-- とくべつな効果ののこり時間（SLOW あと○秒 など） -->
+    <div class="effects" id="effects" aria-live="polite"></div>
   </div>
 
   <!-- 「ステージ1」「スタート！」「目標たっせい！」などの大きな文字 -->
@@ -73,6 +75,13 @@
         <li><canvas class="kindIcon" data-kind="rainbow"></canvas><b>まとめわり</b><small>にじ色</small></li>
         <li><canvas class="kindIcon" data-kind="clock"></canvas><b>+10秒</b><small>とけい</small></li>
         <li><canvas class="kindIcon" data-kind="bomb"></canvas><b>ライフ-1</b><small>ばくだん</small></li>
+      </ul>
+      <ul class="rules later" aria-label="ステージが進むと出てくる風船">
+        <li><canvas class="kindIcon" data-kind="heart"></canvas><b>ライフ+1</b><small>ST2〜</small></li>
+        <li><canvas class="kindIcon" data-kind="slow"></canvas><b>スロー</b><small>ST3〜</small></li>
+        <li><canvas class="kindIcon" data-kind="double"></canvas><b>得点×2</b><small>ST4〜</small></li>
+        <li><canvas class="kindIcon" data-kind="freeze"></canvas><b>フリーズ</b><small>ST6〜</small></li>
+        <li><canvas class="kindIcon" data-kind="mystery"></canvas><b>？</b><small>ST7〜</small></li>
       </ul>
       <p class="note">60秒以内に目標点をとるとステージクリア！<br>5回つづけてわると、ボーナス+50点<br>にがすとライフ-1（ばくだんはOK）</p>
       <div class="best">最高得点 <b id="bestScore">0</b>点<span class="sep">／</span>最高ステージ <b id="bestStage">0</b></div>
