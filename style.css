@@ -131,6 +131,18 @@ button { font: inherit; color: inherit; border: none; background: none; cursor: 
 .lives { display: flex; gap: 2px; padding: 5px 8px; border-radius: 999px; background: rgba(255, 255, 255, .88); box-shadow: 0 2px 6px rgba(20, 80, 140, .18); }
 .heart { width: 22px; height: 20px; fill: #ff4f6d; transition: fill .2s, transform .2s; }
 .heart.lost { fill: #c9d3dc; transform: scale(.85); }
+/* ライフがへった時：ハートがふくらんでから、ゆれて灰色になる。ライフの枠も赤く光る */
+.heart.hit { animation: heartBreak .7s ease-out; }
+@keyframes heartBreak {
+  0% { transform: scale(1); fill: #ff4f6d; }
+  25% { transform: scale(1.6); fill: #ff1f45; }
+  45% { transform: scale(1.2) rotate(-18deg); }
+  60% { transform: scale(1.1) rotate(14deg); }
+  75% { transform: scale(1) rotate(-8deg); fill: #ff4f6d; }
+  100% { transform: scale(.85); fill: #c9d3dc; }
+}
+.lives.hurt { animation: livesHurt .7s ease-out; }
+@keyframes livesHurt { 0%, 50% { background: #ffd0d6; box-shadow: 0 0 0 3px rgba(255, 60, 80, .55); } }
 .iconBtn {
   pointer-events: auto;
   width: 42px;

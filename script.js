@@ -1,7 +1,8 @@
 // バルーンポップ！ ゲーム本体
 // ・ステージは無制限。制限時間60秒のうちに目標点（ステージ1は200点、そのあと50点ずつ増える）に届いた瞬間にクリア
 // ・ふつうの風船10点、金色50点、にじ色は画面の風船をまとめてわる、時計は10秒のばす
-// ・5回つづけてわると +50点（コンボボーナス）。爆弾にさわるとライフが1へる（ライフ3、回復なし）
+// ・5回つづけてわると +50点（コンボボーナス）。爆弾（黒い風船）にさわるとライフが1へる（ライフ3、回復なし）
+// ・爆弾以外の風船を画面の上へにがすと、ライフが1へる（爆弾はにがしてもへらない）
 // ・クリアの速さ（本当にかかった時間）と爆弾で星1〜3個。最高得点と最高到達ステージは localStorage に保存（アプリを更新しても消えない）
 (() => {
   'use strict';
@@ -107,6 +108,7 @@
       rainbow: () => play((t) => { [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => tone(midi(m), t + i * 0.045, 0.3, { type: 'triangle', vol: 0.18 })); noise(t, 0.25, 0.5, 2500); }),
       clock: () => play((t) => { tone(1500, t, 0.05, { type: 'square', vol: 0.12 }); tone(1100, t + 0.12, 0.05, { type: 'square', vol: 0.12 }); tone(midi(84), t + 0.24, 0.3, { type: 'triangle', vol: 0.22 }); }),
       bomb: () => play((t) => { noise(t, 0.7, 0.9, 700); tone(160, t, 0.5, { type: 'sawtooth', vol: 0.3, slide: 0.25 }); }),
+      escape: () => play((t) => { tone(1100, t, 0.45, { type: 'sine', vol: 0.18, slide: 0.3 }); tone(220, t + 0.38, 0.22, { type: 'square', vol: 0.12, slide: 0.6 }); tone(165, t + 0.55, 0.3, { type: 'square', vol: 0.12, slide: 0.6 }); }),
       combo: () => play((t) => { [79, 84, 88, 91].forEach((m, i) => tone(midi(m), t + i * 0.07, 0.18, { type: 'square', vol: 0.1 })); }),
       miss: () => play((t) => { tone(240, t, 0.08, { type: 'sine', vol: 0.08, slide: 0.7 }); }),
       tick: () => play((t) => { tone(1800, t, 0.04, { type: 'square', vol: 0.07 }); }),
@@ -229,23 +231,6 @@
     c.fill();
   }
   function drawBody(c, kind, r, colorIndex) {
-    if (kind === 'bomb') {
-      // 爆弾：黒い玉と導火線
-      c.strokeStyle = '#7a5a33'; c.lineWidth = r * 0.09; c.lineCap = 'round';
-      c.beginPath(); c.moveTo(0.42 * r, -0.78 * r); c.quadraticCurveTo(0.75 * r, -1.15 * r, 0.55 * r, -1.32 * r); c.stroke();
-      c.fillStyle = '#555';
-      c.save(); c.translate(0.4 * r, -0.75 * r); c.rotate(0.6); c.fillRect(-0.18 * r, -0.12 * r, 0.36 * r, 0.24 * r); c.restore();
-      const g = c.createRadialGradient(-0.3 * r, -0.35 * r, 0.1 * r, 0, 0, r);
-      g.addColorStop(0, '#6b6f80'); g.addColorStop(0.5, '#2a2c36'); g.addColorStop(1, '#0d0d12');
-      c.fillStyle = g;
-      c.beginPath(); c.arc(0, 0, 0.92 * r, 0, Math.PI * 2); c.fill();
-      c.fillStyle = 'rgba(255,255,255,.35)';
-      c.beginPath(); c.ellipse(-0.35 * r, -0.4 * r, 0.16 * r, 0.26 * r, -0.6, 0, Math.PI * 2); c.fill();
-      // ×じるし（あぶない）
-      c.strokeStyle = 'rgba(255, 90, 90, .9)'; c.lineWidth = r * 0.13;
-      c.beginPath(); c.moveTo(-0.28 * r, -0.08 * r); c.lineTo(0.28 * r, 0.48 * r); c.moveTo(0.28 * r, -0.08 * r); c.lineTo(-0.28 * r, 0.48 * r); c.stroke();
-      return;
-    }
     drawString(c, r);
     let knot;
     if (kind === 'gold') {
@@ -260,6 +245,11 @@
       const g = c.createRadialGradient(-0.35 * r, -0.5 * r, 0.1 * r, 0, 0, 1.3 * r);
       g.addColorStop(0, '#e8fbff'); g.addColorStop(0.45, '#6fd6f5'); g.addColorStop(1, '#1f9cc4');
       c.fillStyle = g; knot = '#1f9cc4';
+    } else if (kind === 'bomb') {
+      // 爆弾：黒い風船
+      const g = c.createRadialGradient(-0.35 * r, -0.5 * r, 0.1 * r, 0, 0, 1.3 * r);
+      g.addColorStop(0, '#8a8d9c'); g.addColorStop(0.3, '#33353f'); g.addColorStop(1, '#09090d');
+      c.fillStyle = g; knot = '#111116';
     } else {
       const [light, dark] = COLORS[colorIndex];
       const g = c.createRadialGradient(-0.35 * r, -0.5 * r, 0.1 * r, 0, 0, 1.3 * r);
@@ -283,6 +273,29 @@
       c.beginPath(); c.moveTo(0, -0.1 * r); c.lineTo(0, -0.48 * r); c.moveTo(0, -0.1 * r); c.lineTo(0.28 * r, -0.1 * r); c.stroke();
     }
     drawShine(c, r);
+    if (kind === 'bomb') drawBombMark(c, r);
+  }
+  // 黒い風船のまん中の爆弾の絵（白いふちどりで、黒い風船の上でもはっきり見える。火花は draw() で毎フレーム描く）
+  const BOMB_SPARK = [0.5, -0.74];   // 導火線の先（r に対する割合）
+  function drawBombMark(c, r) {
+    const cx = -0.04 * r, cy = 0.02 * r, br = 0.4 * r;
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    // 導火線
+    c.beginPath(); c.moveTo(cx + 0.26 * r, cy - 0.3 * r); c.quadraticCurveTo(cx + 0.5 * r, cy - 0.52 * r, BOMB_SPARK[0] * r, BOMB_SPARK[1] * r);
+    c.strokeStyle = '#fff'; c.lineWidth = r * 0.15; c.stroke();
+    c.strokeStyle = '#c8954a'; c.lineWidth = r * 0.07; c.stroke();
+    // 口金
+    c.save(); c.translate(cx + 0.24 * r, cy - 0.28 * r); c.rotate(0.75);
+    c.fillStyle = '#6d7180'; c.strokeStyle = '#fff'; c.lineWidth = r * 0.05;
+    c.beginPath(); c.rect(-0.13 * r, -0.09 * r, 0.26 * r, 0.18 * r); c.fill(); c.stroke();
+    c.restore();
+    // 玉
+    const g = c.createRadialGradient(cx - 0.14 * r, cy - 0.14 * r, 0.03 * r, cx, cy, br);
+    g.addColorStop(0, '#7d8192'); g.addColorStop(0.55, '#2c2e38'); g.addColorStop(1, '#101015');
+    c.fillStyle = g; c.strokeStyle = '#fff'; c.lineWidth = r * 0.07;
+    c.beginPath(); c.arc(cx, cy, br, 0, Math.PI * 2); c.fill(); c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.7)';
+    c.beginPath(); c.ellipse(cx - 0.15 * r, cy - 0.16 * r, 0.07 * r, 0.12 * r, -0.7, 0, Math.PI * 2); c.fill();
   }
   function makeSprite(kind, colorIndex) {
     const w = 3 * R, h = 4 * R, ax = 1.5 * R, ay = 1.5 * R;
@@ -305,7 +318,7 @@
       const size = 44, dpr = Math.min(3, window.devicePixelRatio || 1), r = 13;
       cv.width = size * dpr; cv.height = size * dpr;
       const c = cv.getContext('2d');
-      c.setTransform(dpr, 0, 0, dpr, size / 2 * dpr, (kind === 'bomb' ? 25 : 17) * dpr);
+      c.setTransform(dpr, 0, 0, dpr, size / 2 * dpr, 17 * dpr);
       drawBody(c, kind, r, 0);
     });
   }
@@ -317,6 +330,7 @@
     stage: 1, total: 0, stageScore: 0, lives: MAX_LIVES, time: STAGE_TIME,
     combo: 0, bombsHit: 0, elapsed: 0, clearSec: 0, stars: 0, introLeft: 0, endTimer: 0, overReason: '',
     spawnTimer: 0, decoTimer: 0, bag: [], lastTick: 0, shake: 0, spawned: {},
+    lostBy: { bomb: 0, escape: 0 }, escaped: {},   // ライフがへった理由ごとの回数・上へにげた風船の数（このゲームの合計）
     bestScore: readInt(BEST_SCORE_KEY), bestStage: readInt(BEST_STAGE_KEY),
     bestScoreAtStart: 0, bestStageAtStart: 0,
   };
@@ -365,12 +379,16 @@
   }
   function moveBalloons(dt) {
     for (const b of balloons) {
+      if (b.dead) continue;                  // にじ色などでわれた風船は、にげた扱いにしない
       b.age += dt;
       b.y -= b.speed * dt;
       const a = b.phase + b.age * b.freq * Math.PI * 2;
       b.x = b.x0 + b.amp * Math.sin(a);
       b.tilt = -Math.cos(a) * 0.12;
-      if (b.y < -2.6 * b.r) b.dead = true;   // 上まで飛んでいった（減点なし）
+      if (b.y < -2.6 * b.r) {                // ひもの先まで、画面の上から完全に消えた
+        b.dead = true;
+        if (!b.deco && !b.escaped) { b.escaped = true; escapeBalloon(b); }
+      }
     }
     balloons = balloons.filter((b) => !b.dead);
   }
@@ -392,14 +410,8 @@
     let best = null, bestD = Infinity;
     for (const b of balloons) {
       if (b.dead || b.deco) continue;
-      let d;
-      if (b.kind === 'bomb') {
-        const dx = x - b.x, dy = y - b.y;
-        d = (dx * dx + dy * dy) / (b.r * b.r);         // 爆弾はまるい形のとおり
-      } else {
-        const dx = (x - b.x) / (b.r * 1.15), dy = (y - (b.y - 0.05 * b.r)) / (b.r * 1.3);
-        d = dx * dx + dy * dy;                          // 風船は少し大きめに当たる
-      }
+      const dx = (x - b.x) / (b.r * 1.15), dy = (y - (b.y - 0.05 * b.r)) / (b.r * 1.3);
+      const d = dx * dx + dy * dy;                      // 風船（爆弾の黒い風船も）は少し大きめに当たる
       if (d <= 1 && d < bestD) { best = b; bestD = d; }
     }
     return best;
@@ -451,17 +463,39 @@
     b.dead = true;
     balloons = balloons.filter((o) => !o.dead);
     explosion(b);
-    state.lives = Math.max(0, state.lives - 1);
-    state.combo = 0;
     state.bombsHit++;
     state.shake = 0.45;
     Sound.se.bomb();
-    try { if (navigator.vibrate && navigator.userActivation && navigator.userActivation.isActive) navigator.vibrate(120); } catch (e) { /* 対応していない時は何もしない */ }
     floatText(b.x, b.y, 'ライフ-1', '#e0303a', 1.15);
+    loseLife('bomb');
+  }
+  // 風船が画面の上から完全に消えた（爆弾はにがしてもOK。ライフがへるのはプレイ中だけ。一時停止中・クリア後は風船が動かない）
+  function escapeBalloon(b) {
+    if (state.mode !== 'play') return;
+    state.escaped[b.kind] = (state.escaped[b.kind] || 0) + 1;
+    if (b.kind === 'bomb') return;
+    const y = el.hud.getBoundingClientRect().bottom + R * 0.9;
+    floatText(Math.min(Math.max(b.x, R * 2.5), W - R * 2.5), y, 'にげた！ ライフ-1', '#e0303a', 1);
+    state.shake = 0.25;
+    Sound.se.escape();
+    loseLife('escape');
+  }
+  // ライフを1へらす（ばくだん・にげた風船で共通。コンボも0にもどる）
+  function loseLife(cause) {
+    state.lives = Math.max(0, state.lives - 1);
+    state.combo = 0;
+    state.lostBy[cause]++;
+    const heart = el.lives.querySelectorAll('.heart')[state.lives];
+    if (heart) { heart.classList.remove('hit'); void heart.offsetWidth; heart.classList.add('hit'); }
+    el.lives.classList.remove('hurt'); void el.lives.offsetWidth; el.lives.classList.add('hurt');
+    try { if (navigator.vibrate && navigator.userActivation && navigator.userActivation.isActive) navigator.vibrate(120); } catch (e) { /* 対応していない時は何もしない */ }
     if (state.lives <= 0) {
       state.mode = 'ending';
       state.endTimer = END_DELAY;
-      state.overReason = 'ばくだんに3回さわってしまった';
+      const parts = [];
+      if (state.lostBy.bomb) parts.push('ばくだん ' + state.lostBy.bomb + '回');
+      if (state.lostBy.escape) parts.push('にがした風船 ' + state.lostBy.escape + '個');
+      state.overReason = 'ライフがなくなった（' + parts.join('・') + '）';
     }
   }
   canvas.addEventListener('pointerdown', (e) => {
@@ -570,11 +604,12 @@
         star(ctx, 0.75 * R, -0.95 * R, R * (0.12 + 0.12 * tw));
         star(ctx, -0.8 * R, 0.3 * R, R * (0.2 - 0.1 * tw));
       } else if (b.kind === 'bomb') {
+        // 導火線の火花（ちらちら光る）
         const fl = 0.7 + Math.random() * 0.5;
         ctx.fillStyle = '#ffd23f';
-        star(ctx, 0.55 * R, -1.34 * R, R * 0.26 * fl);
+        star(ctx, BOMB_SPARK[0] * R, BOMB_SPARK[1] * R, R * 0.22 * fl);
         ctx.fillStyle = '#ff6a1f';
-        star(ctx, 0.55 * R, -1.34 * R, R * 0.13 * fl);
+        star(ctx, BOMB_SPARK[0] * R, BOMB_SPARK[1] * R, R * 0.11 * fl);
       }
       ctx.restore();
     }
@@ -646,6 +681,10 @@
     state.stage = 1;
     state.total = 0;
     state.lives = MAX_LIVES;
+    state.lostBy = { bomb: 0, escape: 0 };
+    state.escaped = {};
+    el.lives.classList.remove('hurt');
+    el.lives.querySelectorAll('.heart').forEach((h) => h.classList.remove('hit'));
     state.bestScoreAtStart = state.bestScore;
     state.bestStageAtStart = state.bestStage;
     [el.start, el.result, el.clear, el.pause].forEach(hide);
@@ -871,11 +910,13 @@
     test: {
       state: () => ({ mode: state.mode, stage: state.stage, total: state.total, stageScore: state.stageScore, lives: state.lives,
         time: state.time, elapsed: state.elapsed, clearSec: state.clearSec, stars: state.stars, combo: state.combo, bombsHit: state.bombsHit, target: targetOf(state.stage),
+        lostBy: { ...state.lostBy }, escaped: { ...state.escaped }, overReason: state.overReason,
         bestScore: state.bestScore, bestStage: state.bestStage, spawned: { ...state.spawned }, R, W, H }),
       balloons: () => balloons.filter((b) => !b.dead && !b.deco).map((b) => ({ id: b.id, kind: b.kind, x: b.x, y: b.y, r: b.r })),
       spawn: (kind, x, y, moving) => { const b = spawn(kind, { x, y, still: !moving }); if (!moving) b.amp = 0; return b.id; },
       clear: () => { balloons = []; },
       setTime: (sec) => { state.time = sec; },
+      setLives: (n) => { state.lives = n; },
       setElapsed: (sec) => { state.elapsed = sec; },
       setStageScore: (n) => { state.stageScore = n; },
       addScore: (n) => addScore(n),
