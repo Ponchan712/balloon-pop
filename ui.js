@@ -24,6 +24,7 @@
     Sound.se.tap();
     if (RENDER[id]) RENDER[id]();
     show(s);
+    syncInPage();
     const body = s.querySelector('.pageBody');
     if (body && id !== 'mapScreen') body.scrollTop = 0;
     if (id === 'mapScreen') scrollMap();
@@ -31,11 +32,13 @@
   function close(s) {
     if (!s) return;
     hide(s);
+    syncInPage();
     if (s.id === 'roomScreen') { trying = {}; }
     if (s.id === 'tutorial' && !Meta.data.tutorial) { Meta.data.tutorial = true; Meta.save(); afterTutorial(); }
     if (s.id === 'celebrate') nextCelebration();
     refreshHome();
   }
+  function syncInPage() { document.body.classList.toggle('inPage', !!document.querySelector('.screen.page:not(.hidden)')); }
   document.addEventListener('click', (e) => {
     const o = e.target.closest('[data-open]');
     if (o) { open(o.dataset.open); return; }
@@ -70,7 +73,7 @@
       wm.innerHTML = `<b>トロフィー</b> ${got} / 20<small>（20こで 週間チャレンジ かいほう）</small><div class="pbar"><i style="width:${Math.round(got / 20 * 100)}%"></i></div>`;
     }
   }
-  document.addEventListener('balloon:title', () => { refreshHome(); showPendingCelebrations(); });
+  document.addEventListener('balloon:title', () => { syncInPage(); refreshHome(); showPendingCelebrations(); });
   document.addEventListener('balloon:openmap', () => open('mapScreen'));
   $('homeChar').addEventListener('click', () => { Sound.unlock(); Chars.cheer($('homeChar'), Meta.data.char, 'joy', Meta.equipOf(Meta.data.char)); setTimeout(refreshHome, 1500); });
 
@@ -132,7 +135,7 @@
     if (!n || n.disabled) return;
     const s = Number(n.dataset.stage);
     if (!Meta.isUnlocked(s)) return;
-    hide($('mapScreen'));
+    hide($('mapScreen')); syncInPage();
     Game.startStage(s);
   });
 
@@ -329,7 +332,7 @@
   }
   RENDER.trophyScreen = () => {
     const d = Meta.data, got = Meta.TROPHIES.filter((t) => d.trophies[t.id]).length;
-    let h = `<div class="tSummary">あつめた トロフィー <b>${got}</b> / 20${bar(got, 20)}</div><div class="tGrid">`;
+    let h = `<div class="tSummary">あつめた トロフィー <b>${got}</b> / 20<div class="pbar"><i style="width:${got * 5}%"></i></div></div><div class="tGrid">`;
     for (const t of Meta.TROPHIES) {
       const date = d.trophies[t.id], cur = Meta.trophyValue(t);
       h += `<div class="tCard${date ? ' got' : ' locked'}"><div class="tIcon">${trophyArt(t)}</div>` +

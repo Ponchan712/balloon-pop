@@ -596,22 +596,26 @@
     }
     return best;
   }
-  // タップ：風船がなければ空振り（コンボが0にもどる）
+  // タップ：風船があればすぐわる。なければ、指をはなした時に空振りかどうか決める（なぞって風船をわったら空振りではない）
   function tapAt(x, y) {
-    if (state.mode !== 'play') return;
+    if (state.mode !== 'play') return false;
     const b = hitTest(x, y);
-    if (!b) {
-      if (state.combo > 0) { state.combo = 0; Sound.se.miss(); }
-      ring(x, y, '#ffffff', 0.6);
-      return;
-    }
+    if (!b) return false;
     popBalloon(b);
+    return true;
   }
-  // スワイプ（なぞる）：通ったところの風船をわる（空振りにはならない。爆弾にさわるとライフ-1）
-  function swipeAt(x, y) {
+  // 空振り（コンボが0にもどる）
+  function missAt(x, y) {
     if (state.mode !== 'play') return;
+    if (state.combo > 0) { state.combo = 0; Sound.se.miss(); }
+    ring(x, y, '#ffffff', 0.6);
+  }
+  // スワイプ（なぞる）：通ったところの風船をわる（爆弾にさわるとライフ-1）
+  function swipeAt(x, y) {
+    if (state.mode !== 'play') return false;
     const b = hitTest(x, y);
     if (b) popBalloon(b);
+    return !!b;
   }
   function popBalloon(b) {
     if (b.kind === 'bomb') return hitBomb(b);
@@ -810,8 +814,8 @@
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     const p = pointAt(e);
-    pointers.set(e.pointerId, p);
-    tapAt(p.x, p.y);
+    const hit = tapAt(p.x, p.y);
+    pointers.set(e.pointerId, { x: p.x, y: p.y, x0: p.x, y0: p.y, popped: hit });
   });
   canvas.addEventListener('pointermove', (e) => {
     const last = pointers.get(e.pointerId);
@@ -821,14 +825,20 @@
     if (dist < 2) return;
     if (state.mode === 'play') {
       const steps = Math.max(1, Math.ceil(dist / (R * 0.35)));
-      for (let i = 1; i <= steps; i++) swipeAt(last.x + (p.x - last.x) * i / steps, last.y + (p.y - last.y) * i / steps);
+      for (let i = 1; i <= steps; i++) if (swipeAt(last.x + (p.x - last.x) * i / steps, last.y + (p.y - last.y) * i / steps)) last.popped = true;
       trail.push({ x1: last.x, y1: last.y, x2: p.x, y2: p.y, t: 0 });
       if (trail.length > 60) trail.shift();
     }
-    pointers.set(e.pointerId, p);
+    last.x = p.x; last.y = p.y;
+  });
+  // 指をはなした時：何もわらず、ほとんど動かさなかったら空振り（なぞって何もなかった時はコンボはそのまま）
+  canvas.addEventListener('pointerup', (e) => {
+    const g = pointers.get(e.pointerId);
+    pointers.delete(e.pointerId);
+    if (g && !g.popped && Math.hypot(g.x - g.x0, g.y - g.y0) < R * 0.6) missAt(g.x0, g.y0);
   });
   const endPointer = (e) => pointers.delete(e.pointerId);
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => canvas.addEventListener(ev, endPointer));
+  ['pointercancel', 'pointerleave'].forEach((ev) => canvas.addEventListener(ev, endPointer));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // ---------- いっしょに遊ぶキャラクター（画面の左下。タップのじゃまにならない） ----------
