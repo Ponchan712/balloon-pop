@@ -3,3 +3,5 @@ CLAUDE.md
 start-local-server.bat
 tools/
 .claude/
+# 仕様書などの資料（公開しない）
+*.docx
