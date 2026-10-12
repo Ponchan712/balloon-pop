@@ -1,22 +1,25 @@
 // バルーンポップ！ ゲーム本体
-// ・ステージは無制限。制限時間60秒のうちに目標点（ステージ1は200点、そのあと50点ずつ増える）に届いた瞬間にクリア
-// ・ふつうの風船10点、金色50点、にじ色は画面の風船をまとめてわる、時計は10秒のばす
-// ・5回つづけてわると +50点（コンボボーナス）。爆弾（黒い風船）にさわるとライフが1へる（ライフ3、回復なし）
-// ・爆弾以外の風船を画面の上へにがすと、ライフが1へる（爆弾はにがしてもへらない）
-// ・ステージが進むと、とくべつな風船が出てくる（ver4〜）
-//     ステージ2〜 ハート（ライフ+1、満タンなら10点）／3〜 スロー（5秒間 風船が半分の速さ）／4〜 ×2（10秒間 ふつう・金色の得点2倍）
-//     5〜 ボーナスラッシュ（1ステージ1回、8秒間 風船がたくさん・爆弾なし・にがしてもOK）／6〜 フリーズ（3秒間 風船が止まる）
-//     7〜 ？（50点・+5秒・スロー・フリーズのどれか）。スローとフリーズは、あとからとった方が優先
-// ・5ステージごと（5・10・15…）のクリアは「SPECIAL CLEAR!」（花火・紙ふぶき・金色の星・ファンファーレ）
-// ・クリアの速さ（本当にかかった時間）と爆弾で星1〜3個。最高得点と最高到達ステージは localStorage に保存（アプリを更新しても消えない）
+// ・ステージは無制限。1回の挑戦は1ステージ（ライフ3・60秒）。目標点に届いた瞬間にクリア。失敗しても同じステージから無料で何度でも
+// ・ふつうの風船10点、金色50点、にじ色は画面の風船をまとめてわる、時計は10秒のばす。タップでも、なぞる（スワイプ）でもわれる
+// ・5回つづけてわると +50点・+5コイン（コンボボーナス）。爆弾（黒い風船）にさわるとライフが1へる
+// ・爆弾以外の風船を画面の上へにがすと、ライフが1へる（爆弾はにがしてもへらない）。ライフがへったあと1秒間は、次のダメージを受けない
+// ・とくべつな風船（ハート・スロー・ダブル得点・フリーズ・？）は、ショップで買った種類だけ出てくる（合わせて約12%）
+// ・ステージ5からボーナスラッシュ（1ステージ1回、8秒間 風船がたくさん・爆弾なし・にがしてもOK）
+// ・5ステージごと（5・10・15…）のクリアは「SPECIAL CLEAR!」。5ステージごとに景色とBGMがかわる（meta.js の WORLDS）
+// ・ライフ0・時間切れの時は、コインで復活できる（1回の挑戦で3回まで。30・60・100コイン。ライフ2・+10秒・1秒間ダメージなし）
+// ・クリアの速さ（本当にかかった時間）と爆弾で星1〜3個。コイン・トロフィー・ミッションなどは meta.js
 (() => {
   'use strict';
+  const Meta = window.BalloonMeta;
+  const Chars = window.BalloonChars;
 
   // ---------- ルール ----------
   const STAGE_TIME = 60;          // 1ステージの時間（秒）
-  const FIRST_TARGET = 200;       // ステージ1の目標点
-  const TARGET_STEP = 50;         // ステージごとに増える目標点
   const MAX_LIVES = 3;
+  const GUARD_SEC = 1;            // ライフがへった後・復活した後、ダメージを受けない時間（秒）
+  const REVIVE_TIME = 10;         // 復活でふえる秒数
+  const REVIVE_LIVES = 2;
+  const MAX_REVIVES = 3;
   const POINTS = { normal: 10, gold: 50, rainbow: 10, clock: 0, heart: 10, slow: 10, double: 10, freeze: 10, mystery: 0 };
   const CLOCK_BONUS = 10;         // 時計の風船でのびる秒数
   const MAX_CLOCKS = 2;           // 1ステージに出る時計の数（のびるのは最大20秒）
@@ -25,8 +28,9 @@
   const INTRO_TIME = 1.8;         // 「ステージ○」を出している時間（秒）
   const END_DELAY = 1.0;          // ライフが0になってから、ゲームオーバー画面を出すまで（秒）
   const MAX_BALLOONS = 16;
-  // とくべつな風船・ボーナスラッシュ（ver4〜）
-  const FROM_STAGE = { heart: 2, slow: 3, double: 4, rush: 5, freeze: 6, mystery: 7 };   // 出てくるステージ
+  // とくべつな風船（ショップで買った種類だけ）・ボーナスラッシュ
+  const FROM_STAGE = { rush: 5 };         // ボーナスラッシュが来るステージ
+  const SPECIAL_SLOTS = 5;                // 袋40個のうち、とくべつな風船は5個（約12%。買った種類で分ける）
   const SLOW_SEC = 5, SLOW_RATE = 0.5;    // スロー：5秒間、風船の動きが50%
   const FREEZE_SEC = 3;                   // フリーズ：3秒間、風船が止まり、新しい風船も出ない
   const DOUBLE_SEC = 10;                  // ×2：10秒間、ふつう・金色の風船の得点が2倍（コンボボーナスは2倍にしない）
@@ -40,9 +44,14 @@
 
   const BEST_SCORE_KEY = 'balloonBestScore';
   const BEST_STAGE_KEY = 'balloonBestStage';
-  const SOUND_KEY = 'balloonSound';
 
-  const targetOf = (stage) => FIRST_TARGET + TARGET_STEP * (stage - 1);
+  // 目標点：ステージ1は200点、10までは50点ずつ、30までは25点ずつ、そのあとは10点ずつふえる
+  //   （風船の速さ・数はステージ13ごろで上がりきるので、そのあとはゆっくり。ステージ30＝1150点、100＝1850点）
+  function targetOf(stage) {
+    if (stage <= 10) return 200 + 50 * (stage - 1);
+    if (stage <= 30) return 650 + 25 * (stage - 10);
+    return 1150 + 10 * (stage - 30);
+  }
   // 星：スタートから本当にかかった時間で決める（時計で時間をのばしても、のびた分は得にならない）
   //   ★3 … 30秒以内にクリア＋そのステージで爆弾に1回もさわっていない
   //   ★2 … 40秒以内にクリア
@@ -74,19 +83,21 @@
   const $ = (id) => document.getElementById(id);
 
   // ---------- 音（BGM・効果音。Web Audio API で作るので、音のファイルはいらない） ----------
+  // BGM と効果音は べつべつに オン・オフできる（設定は meta.js の settings に保存）
   const Sound = (() => {
     let ac = null, master = null, bgmGain = null, seGain = null, noiseBuf = null;
-    let enabled = store.get(SOUND_KEY) !== 'off';
-    let bgmTimer = null, nextTime = 0, step = 0;
+    let bgmOn = Meta.data.settings.bgm !== false, seOn = Meta.data.settings.se !== false;
+    let bgmTimer = null, nextTime = 0, step = 0, wantBgm = false, theme = 0;
+    const BGM_VOL = 0.2, SE_VOL = 0.55;
 
     function unlock() {
       if (!ac) {
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) return;
         ac = new AC();
-        master = ac.createGain(); master.gain.value = enabled ? 1 : 0; master.connect(ac.destination);
-        bgmGain = ac.createGain(); bgmGain.gain.value = 0.2; bgmGain.connect(master);
-        seGain = ac.createGain(); seGain.gain.value = 0.55; seGain.connect(master);
+        master = ac.createGain(); master.gain.value = 1; master.connect(ac.destination);
+        bgmGain = ac.createGain(); bgmGain.gain.value = bgmOn ? BGM_VOL : 0; bgmGain.connect(master);
+        seGain = ac.createGain(); seGain.gain.value = seOn ? SE_VOL : 0; seGain.connect(master);
         noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
         const d = noiseBuf.getChannelData(0);
         for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -117,7 +128,7 @@
       src.connect(f); f.connect(g); g.connect(dest || seGain);
       src.start(start); src.stop(start + dur + 0.03);
     }
-    function play(fn) { if (enabled && ready()) { try { fn(ac.currentTime + 0.005); } catch (e) { /* 音が出なくてもゲームは続ける */ } } }
+    function play(fn) { if (seOn && ready()) { try { fn(ac.currentTime + 0.005); } catch (e) { /* 音が出なくてもゲームは続ける */ } } }
 
     const se = {
       pop: () => play((t) => { noise(t, 0.09, 0.5, 3200); tone(620, t, 0.12, { type: 'triangle', vol: 0.25, slide: 2 }); }),
@@ -154,20 +165,54 @@
         [0.5, 0.9, 1.3, 1.7, 2.1, 2.5].forEach((d) => noise(t + d, 0.35, 0.35, 1800));   // 花火の音
       }),
       over: () => play((t) => { [76, 72, 67, 60].forEach((m, i) => tone(midi(m), t + i * 0.2, 0.3, { type: 'triangle', vol: 0.2 })); }),
+      // コイン・復活・トロフィー・ショップ・ボタン
+      coin: () => play((t) => { tone(midi(93), t, 0.08, { type: 'square', vol: 0.08 }); tone(midi(100), t + 0.07, 0.25, { type: 'square', vol: 0.08 }); }),
+      revive: () => play((t) => { [60, 64, 67, 72, 76, 79, 84].forEach((m, i) => tone(midi(m), t + i * 0.06, 0.35, { type: 'triangle', vol: 0.2 })); noise(t + 0.3, 0.4, 0.2, 7000); }),
+      guard: () => play((t) => { tone(midi(88), t, 0.15, { type: 'sine', vol: 0.15 }); tone(midi(95), t + 0.06, 0.2, { type: 'sine', vol: 0.12 }); }),
+      trophy: () => play((t) => {
+        [[72, 0], [76, 0.12], [79, 0.24], [84, 0.36], [88, 0.6], [91, 0.72], [96, 0.84]].forEach(([m, d]) => tone(midi(m), t + d, d >= 0.84 ? 0.9 : 0.2, { type: 'square', vol: 0.11 }));
+        [0.84, 1.0, 1.16].forEach((d) => noise(t + d, 0.2, 0.18, 9000));
+      }),
+      buy: () => play((t) => { tone(midi(84), t, 0.08, { type: 'square', vol: 0.1 }); tone(midi(91), t + 0.08, 0.08, { type: 'square', vol: 0.1 }); tone(midi(96), t + 0.16, 0.35, { type: 'triangle', vol: 0.18 }); noise(t + 0.16, 0.2, 0.2, 8000); }),
+      tap: () => play((t) => { tone(midi(84), t, 0.06, { type: 'triangle', vol: 0.15 }); }),
+      nope: () => play((t) => { tone(220, t, 0.12, { type: 'square', vol: 0.08 }); tone(185, t + 0.12, 0.18, { type: 'square', vol: 0.08 }); }),
     };
 
-    // BGM：明るい8分音符のくり返し（テンポ 140）
-    const STEP = 60 / 140 / 2;
-    const MELODY = [72, 76, 79, 76, 81, 79, 76, 0, 77, 81, 84, 81, 79, 0, 76, 0,
-                    74, 77, 81, 77, 79, 76, 72, 0, 74, 76, 77, 79, 72, 0, 0, 0];
-    const BASS = [48, 48, 48, 48, 53, 53, 53, 53, 50, 50, 55, 55, 48, 48, 55, 48];
+    // BGM：8分音符のくり返し。5ステージごと（世界ごと）に曲がかわる（meta.js の WORLDS と同じ順番）
+    const THEMES = [
+      { tempo: 140, wave: 'square', vol: 0.09, // ぽかぽか草原
+        mel: [72, 76, 79, 76, 81, 79, 76, 0, 77, 81, 84, 81, 79, 0, 76, 0, 74, 77, 81, 77, 79, 76, 72, 0, 74, 76, 77, 79, 72, 0, 0, 0],
+        bass: [48, 48, 48, 48, 53, 53, 53, 53, 50, 50, 55, 55, 48, 48, 55, 48] },
+      { tempo: 120, wave: 'triangle', vol: 0.16, // さくらの公園
+        mel: [76, 79, 81, 0, 84, 81, 79, 0, 76, 74, 76, 0, 79, 0, 0, 0, 81, 84, 86, 84, 81, 79, 76, 0, 74, 76, 79, 76, 74, 0, 72, 0],
+        bass: [45, 45, 52, 52, 48, 48, 55, 55, 45, 45, 52, 52, 50, 50, 43, 43] },
+      { tempo: 132, wave: 'square', vol: 0.08, // 南国の海
+        mel: [74, 0, 78, 81, 0, 78, 81, 83, 81, 0, 78, 0, 76, 78, 74, 0, 76, 0, 79, 83, 0, 79, 83, 86, 83, 0, 79, 0, 78, 76, 74, 0],
+        bass: [50, 50, 57, 57, 55, 55, 57, 57, 52, 52, 59, 59, 57, 57, 50, 50] },
+      { tempo: 112, wave: 'triangle', vol: 0.16, // ゆうやけの丘
+        mel: [72, 76, 79, 84, 83, 79, 76, 0, 74, 77, 81, 86, 84, 81, 77, 0, 76, 79, 83, 88, 86, 83, 79, 0, 77, 76, 74, 72, 71, 72, 0, 0],
+        bass: [48, 48, 52, 52, 50, 50, 53, 53, 52, 52, 55, 55, 53, 50, 48, 48] },
+      { tempo: 100, wave: 'sine', vol: 0.2, // きらきら星空
+        mel: [84, 0, 79, 0, 76, 0, 79, 0, 81, 0, 77, 0, 74, 0, 77, 0, 79, 0, 76, 0, 72, 0, 76, 0, 74, 77, 79, 81, 79, 0, 0, 0],
+        bass: [48, 48, 45, 45, 41, 41, 43, 43, 48, 48, 45, 45, 43, 43, 48, 48] },
+      { tempo: 128, wave: 'square', vol: 0.07, // ふしぎな宇宙
+        mel: [72, 79, 84, 79, 74, 81, 86, 81, 76, 83, 88, 83, 74, 81, 86, 81, 72, 79, 84, 79, 77, 84, 89, 84, 79, 86, 91, 86, 84, 0, 0, 0],
+        bass: [36, 36, 38, 38, 40, 40, 38, 38, 36, 36, 41, 41, 43, 43, 36, 36] },
+      { tempo: 150, wave: 'square', vol: 0.08, // お菓子の王国
+        mel: [79, 79, 84, 0, 79, 0, 76, 0, 77, 77, 81, 0, 77, 0, 74, 0, 76, 76, 79, 0, 84, 0, 83, 81, 79, 0, 77, 0, 76, 0, 72, 0],
+        bass: [48, 55, 48, 55, 53, 60, 53, 60, 52, 55, 52, 55, 55, 50, 48, 48] },
+      { tempo: 136, wave: 'triangle', vol: 0.15, // にじの雲の国
+        mel: [76, 78, 80, 83, 85, 83, 80, 0, 78, 80, 81, 85, 88, 85, 81, 0, 80, 81, 83, 86, 88, 86, 83, 0, 85, 83, 81, 80, 78, 0, 76, 0],
+        bass: [52, 52, 56, 56, 54, 54, 57, 57, 52, 52, 59, 59, 57, 57, 52, 52] },
+    ];
     function schedule() {
       if (!ready()) return;
+      const th = THEMES[theme] || THEMES[0], STEP = 60 / th.tempo / 2;
       while (nextTime < ac.currentTime + 0.3) {
-        const m = MELODY[step % MELODY.length];
-        if (m) tone(midi(m), nextTime, STEP * 0.9, { type: 'square', vol: 0.09, dest: bgmGain });
+        const m = th.mel[step % th.mel.length];
+        if (m) tone(midi(m), nextTime, STEP * 0.9, { type: th.wave, vol: th.vol, dest: bgmGain });
         if (step % 2 === 0) {
-          const b = BASS[(step / 2) % BASS.length];
+          const b = th.bass[(step / 2) % th.bass.length];
           tone(midi(b), nextTime, STEP * 1.7, { type: 'triangle', vol: 0.28, dest: bgmGain });
         } else {
           noise(nextTime, 0.03, 0.12, 9000, bgmGain);
@@ -177,21 +222,27 @@
       }
     }
     function startBgm() {
-      if (!ready()) return;
-      if (bgmTimer) return;
+      wantBgm = true;
+      if (!ready() || !bgmOn || bgmTimer) return;
       nextTime = ac.currentTime + 0.08;
       bgmTimer = setInterval(schedule, 60);
       schedule();
     }
-    function stopBgm() { clearInterval(bgmTimer); bgmTimer = null; }
-    function resetBgm() { step = 0; }
+    function stopBgm() { wantBgm = false; clearInterval(bgmTimer); bgmTimer = null; }
+    function resetBgm(world = 0) { step = 0; theme = world % THEMES.length; }
 
-    function setEnabled(v) {
-      enabled = v;
-      store.set(SOUND_KEY, v ? 'on' : 'off');
-      if (ready()) master.gain.setTargetAtTime(v ? 1 : 0, ac.currentTime, 0.02);
+    function setBgm(v) {
+      bgmOn = !!v;
+      Meta.setSetting('bgm', bgmOn);
+      if (ready()) bgmGain.gain.setTargetAtTime(bgmOn ? BGM_VOL : 0, ac.currentTime, 0.02);
+      if (!bgmOn) { clearInterval(bgmTimer); bgmTimer = null; } else if (wantBgm) { const w = wantBgm; startBgm(); wantBgm = w; }
     }
-    return { unlock, se, startBgm, stopBgm, resetBgm, setEnabled, isEnabled: () => enabled };
+    function setSe(v) {
+      seOn = !!v;
+      Meta.setSetting('se', seOn);
+      if (ready()) seGain.gain.setTargetAtTime(seOn ? SE_VOL : 0, ac.currentTime, 0.02);
+    }
+    return { unlock, se, startBgm, stopBgm, resetBgm, setBgm, setSe, bgmOn: () => bgmOn, seOn: () => seOn };
   })();
 
   // ---------- 画面 ----------
@@ -200,7 +251,7 @@
   const el = {
     hud: $('hud'), stageNum: $('stageNum'), timeNum: $('timeNum'), timeChip: $('timeChip'), lives: $('lives'),
     scoreNum: $('scoreNum'), stageScoreNum: $('stageScoreNum'), targetNum: $('targetNum'), goal: $('goal'), goalFill: $('goalFill'),
-    combo: $('combo'), effects: $('effects'), banner: $('banner'), bonus: $('bonus'),
+    combo: $('combo'), effects: $('effects'), coinNum: $('coinNum'), banner: $('banner'), bonus: $('bonus'),
     start: $('start'), pause: $('pause'), pauseMenu: $('pauseMenu'), confirm: $('confirm'), confirmText: $('confirmText'),
     clear: $('clear'), result: $('result'),
   };
@@ -442,17 +493,20 @@
   }
 
   // ---------- ゲームの状態 ----------
-  // mode: title（スタート画面）／intro（ステージ○の表示中）／play／paused／ending（ライフ0の爆発中）／clear（ステージクリア画面）／over（ゲームオーバー画面）
+  // mode: title（ホーム画面など）／intro（ステージ○の表示中）／play／paused／ending（ライフ0の爆発中）／revive（復活するか聞いている）
+  //       clear（ステージクリア画面）／over（ゲームオーバー画面）
   const state = {
     mode: 'title', prevMode: null,
-    stage: 1, total: 0, stageScore: 0, lives: MAX_LIVES, time: STAGE_TIME,
+    stage: 1, total: 0, totalAtStageStart: 0, stageScore: 0, lives: MAX_LIVES, time: STAGE_TIME,
     combo: 0, bombsHit: 0, elapsed: 0, clearSec: 0, stars: 0, introLeft: 0, endTimer: 0, overReason: '',
     spawnTimer: 0, decoTimer: 0, bag: [], lastTick: 0, shake: 0, spawned: {},
     motion: null, doubleLeft: 0, rushLeft: 0, rushDone: false, rushAt: Infinity, rushConfetti: 0, mysteryTimeUsed: false, lastMystery: null, special: false, savedByRush: 0,
-    lostBy: { bomb: 0, escape: 0 }, escaped: {},   // ライフがへった理由ごとの回数・上へにげた風船の数（このゲームの合計）
+    lostBy: { bomb: 0, escape: 0 }, escaped: {},   // ライフがへった理由ごとの回数・上へにげた風船の数（この挑戦の合計）
+    coins: 0, revives: 0, guard: 0, guarded: 0, lostLife: false, reward: null, timeUp: false,   // この挑戦で集めたコイン・復活した回数・ダメージを受けない時間
     bestScore: readInt(BEST_SCORE_KEY), bestStage: readInt(BEST_STAGE_KEY),
     bestScoreAtStart: 0, bestStageAtStart: 0,
   };
+  let guardSec = GUARD_SEC;   // 自動テストで変える
   let balloons = [];
   let particles = [];
   let texts = [];
@@ -460,12 +514,16 @@
 
   // 40個ずつの袋から順に出す（種類の割合が毎回ほぼ同じになり、同じ種類が続きすぎない）
   //   金色4（10%）・にじ色2（5%）・時計（1ステージ2個まで）・爆弾（ステージで4〜10個）
-  //   とくべつな風船は、出てくるステージから1個ずつ（それぞれ2.5%）。のこりはぜんぶ、ふつうの風船
+  //   とくべつな風船は、ショップで買った種類だけで5個（約12%。2種類以上なら、順番に分ける）。のこりはぜんぶ、ふつうの風船
   function refillBag() {
     const p = stageParams(state.stage);
     const bag = ['gold', 'gold', 'gold', 'gold', 'rainbow', 'rainbow'];
     for (let n = state.spawned.clock || 0; n < MAX_CLOCKS; n++) bag.push('clock');
-    for (const k of ['heart', 'slow', 'double', 'freeze', 'mystery']) if (state.stage >= FROM_STAGE[k]) bag.push(k);
+    const owned = Meta.ownedSpecials().filter((k) => POINTS[k] != null);
+    if (owned.length) {
+      const first = Math.floor(Math.random() * owned.length);
+      for (let i = 0; i < SPECIAL_SLOTS; i++) bag.push(owned[(first + i) % owned.length]);
+    }
     for (let i = 0; i < p.bombs * 2; i++) bag.push('bomb');
     while (bag.length < BAG_SIZE) bag.push('normal');
     for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
@@ -538,6 +596,7 @@
     }
     return best;
   }
+  // タップ：風船がなければ空振り（コンボが0にもどる）
   function tapAt(x, y) {
     if (state.mode !== 'play') return;
     const b = hitTest(x, y);
@@ -546,6 +605,15 @@
       ring(x, y, '#ffffff', 0.6);
       return;
     }
+    popBalloon(b);
+  }
+  // スワイプ（なぞる）：通ったところの風船をわる（空振りにはならない。爆弾にさわるとライフ-1）
+  function swipeAt(x, y) {
+    if (state.mode !== 'play') return;
+    const b = hitTest(x, y);
+    if (b) popBalloon(b);
+  }
+  function popBalloon(b) {
     if (b.kind === 'bomb') return hitBomb(b);
 
     // にじ色：画面にある、ばくだん以外の風船をまとめてわる
@@ -565,11 +633,18 @@
       gained += r.pts;
       if (r.healed) healed = true;
     });
+    // コイン：わった風船1こにつき1コイン（にじ色のまとめわりも1こずつ。同じ風船は1回だけ）
+    state.coins += popped.length * Meta.COIN.pop;
+    Meta.recordPop(popped.length);
     state.combo++;
+    Meta.recordCombo(state.combo);
     if (state.combo % COMBO_STEP === 0) {
       gained += COMBO_BONUS;                 // コンボボーナスは2倍にしない
-      showBonus(state.combo + 'コンボ！ +' + COMBO_BONUS);
+      state.coins += Meta.COIN.combo5;
+      showBonus(state.combo + 'コンボ！ +' + COMBO_BONUS + '点 +' + Meta.COIN.combo5 + 'コイン');
       Sound.se.combo();
+      buddyCheer();
+      comboSparkle();
     }
     addScore(gained);
     if (b.kind === 'rainbow') Sound.se.rainbow();
@@ -681,8 +756,8 @@
     state.bombsHit++;
     state.shake = 0.45;
     Sound.se.bomb();
-    floatText(b.x, b.y, 'ライフ-1', '#e0303a', 1.15);
-    loseLife('bomb');
+    if (loseLife('bomb')) floatText(b.x, b.y, 'ライフ-1', '#e0303a', 1.15);
+    else floatText(b.x, b.y, 'ガード！', '#2a86c9', 1.1);
   }
   // 風船が画面の上から完全に消えた（爆弾はにがしてもOK。ライフがへるのはプレイ中だけ。一時停止中・クリア後は風船が動かない）
   function escapeBalloon(b) {
@@ -698,16 +773,21 @@
       floatText(x, y, 'セーフ！', '#e08a00', 0.9);
       return;
     }
+    if (!loseLife('escape')) { floatText(x, y, 'にげた！ ガード', '#2a86c9', 0.9); return; }
     floatText(x, y, 'にげた！ ライフ-1', '#e0303a', 1);
     state.shake = 0.25;
     Sound.se.escape();
-    loseLife('escape');
   }
   // ライフを1へらす（ばくだん・にげた風船で共通。コンボも0にもどる）
+  // ライフがへった後・復活した後の1秒間はガード中で、ライフはへらない（コンボは0にもどる）。へった時は true を返す
   function loseLife(cause) {
-    state.lives = Math.max(0, state.lives - 1);
     state.combo = 0;
+    if (state.guard > 0) { state.guarded++; Sound.se.guard(); return false; }
+    state.lives = Math.max(0, state.lives - 1);
     state.lostBy[cause]++;
+    state.lostLife = true;
+    state.guard = guardSec;
+    buddyMood('sad', 1200);
     const heart = el.lives.querySelectorAll('.heart')[state.lives];
     if (heart) { heart.classList.remove('hit', 'heal'); void heart.offsetWidth; heart.classList.add('hit'); }
     el.lives.classList.remove('hurt', 'healed'); void el.lives.offsetWidth; el.lives.classList.add('hurt');
@@ -720,13 +800,52 @@
       if (state.lostBy.escape) parts.push('にがした風船 ' + state.lostBy.escape + '個');
       state.overReason = 'ライフがなくなった（' + parts.join('・') + '）';
     }
+    return true;
   }
+  // タップとスワイプ。指を動かしたあいだは、通り道を少しずつ調べて、さわった風船をぜんぶわる（光る軌跡も描く）
+  const pointers = new Map();
+  const TRAIL_LIFE = 0.22;   // 軌跡がのこる秒数
+  let trail = [];
+  function pointAt(e) { const rect = canvas.getBoundingClientRect(); return { x: e.clientX - rect.left, y: e.clientY - rect.top }; }
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    tapAt(e.clientX - rect.left, e.clientY - rect.top);
+    const p = pointAt(e);
+    pointers.set(e.pointerId, p);
+    tapAt(p.x, p.y);
   });
+  canvas.addEventListener('pointermove', (e) => {
+    const last = pointers.get(e.pointerId);
+    if (!last) return;
+    const p = pointAt(e);
+    const dist = Math.hypot(p.x - last.x, p.y - last.y);
+    if (dist < 2) return;
+    if (state.mode === 'play') {
+      const steps = Math.max(1, Math.ceil(dist / (R * 0.35)));
+      for (let i = 1; i <= steps; i++) swipeAt(last.x + (p.x - last.x) * i / steps, last.y + (p.y - last.y) * i / steps);
+      trail.push({ x1: last.x, y1: last.y, x2: p.x, y2: p.y, t: 0 });
+      if (trail.length > 60) trail.shift();
+    }
+    pointers.set(e.pointerId, p);
+  });
+  const endPointer = (e) => pointers.delete(e.pointerId);
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => canvas.addEventListener(ev, endPointer));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ---------- いっしょに遊ぶキャラクター（画面の左下。タップのじゃまにならない） ----------
+  const buddyEl = $('buddy');
+  let buddyTimer = null;
+  function buddyRender(expr = 'happy') { const d = Meta.data; Chars.render(buddyEl, d.char, Meta.equipOf(d.char), expr); }
+  function buddyCheer() { const d = Meta.data; Chars.cheer(buddyEl, d.char, 'joy', Meta.equipOf(d.char)); clearTimeout(buddyTimer); buddyTimer = setTimeout(() => buddyRender(), 1500); }
+  function buddyMood(expr, ms) { buddyRender(expr); clearTimeout(buddyTimer); buddyTimer = setTimeout(() => buddyRender(), ms); }
+  // コンボのキラキラ（HUDのコンボの文字のまわり）
+  function comboSparkle() {
+    const cols = ['#ffe14d', '#ff7ad9', '#5ee06a', '#4ab3ff'];
+    const y = el.hud.getBoundingClientRect().bottom + R * 0.5;
+    for (let i = 0; i < 14; i++) {
+      const a = Math.random() * Math.PI * 2, sp = R * (2 + Math.random() * 3);
+      particles.push({ x: W / 2, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.7, t: 0, color: cols[i % cols.length], size: R * 0.14, star: true, spin: 0 });
+    }
+  }
 
   // ---------- 演出 ----------
   function burst(b, delay = 0) {
@@ -789,6 +908,8 @@
       p.vx *= 0.94; p.vy = p.vy * 0.94 + R * 6 * dt;
     }
     particles = particles.filter((p) => p.t < p.life);
+    for (const s of trail) s.t += dt;
+    if (trail.length) trail = trail.filter((s) => s.t < TRAIL_LIFE);
     for (const t of texts) { t.t += dt; t.y -= R * 1.5 * dt; }
     texts = texts.filter((t) => t.t < t.life);
     if (state.shake > 0) state.shake = Math.max(0, state.shake - dt);
@@ -854,6 +975,20 @@
       }
       ctx.restore();
     }
+    // スワイプの光る軌跡（外がわの色の線＋内がわの白い線。古いところから細く・うすくなる）
+    if (trail.length) {
+      ctx.lineCap = 'round';
+      for (const s of trail) {
+        const k = 1 - s.t / TRAIL_LIFE;
+        ctx.globalAlpha = k * 0.55;
+        ctx.strokeStyle = '#ffe36b'; ctx.lineWidth = R * 0.42 * k + 2;
+        ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+        ctx.globalAlpha = k;
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = R * 0.16 * k + 1.5;
+        ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
     for (const p of particles) {
       if (p.t < 0) continue;
       const k = 1 - p.t / p.life;
@@ -903,6 +1038,8 @@
     setText('time', el.timeNum, String(sec));
     el.timeChip.classList.toggle('hurry', state.mode === 'play' && sec <= 10);
     setText('score', el.scoreNum, String(state.total));
+    setText('coins', el.coinNum, String(state.coins));
+    el.lives.classList.toggle('guard', state.guard > 0 && state.mode === 'play');
     setText('stageScore', el.stageScoreNum, String(state.stageScore));
     setText('target', el.targetNum, String(target));
     const ratio = Math.min(1, state.stageScore / target);
@@ -930,32 +1067,44 @@
   }
 
   // ---------- ゲームの流れ ----------
-  function startGame() {
+  // ステージをはじめる（ホームの「あそぶ」・冒険マップ・もう一度）。keepRun：前のステージからの合計得点をつづける
+  function startStage(stage, keepRun = false) {
     Sound.unlock();
-    state.stage = 1;
-    state.total = 0;
-    state.lives = MAX_LIVES;
-    state.lostBy = { bomb: 0, escape: 0 };
-    state.escaped = {};
-    el.lives.classList.remove('hurt', 'healed');
-    el.lives.querySelectorAll('.heart').forEach((h) => h.classList.remove('hit', 'heal'));
-    state.bestScoreAtStart = state.bestScore;
-    state.bestStageAtStart = state.bestStage;
-    [el.start, el.result, el.clear, el.pause].forEach(hide);
+    stage = Math.max(1, stage | 0);
+    if (!keepRun) {
+      state.total = 0;
+      state.totalAtStageStart = 0;
+      state.bestScoreAtStart = state.bestScore;
+      state.bestStageAtStart = state.bestStage;
+    } else {
+      state.total = state.totalAtStageStart;   // 失敗した挑戦の得点は、合計からはずす
+    }
+    state.stage = stage;
+    document.querySelectorAll('.screen').forEach(hide);
     show(el.hud);
-    Sound.resetBgm();
     beginStage();
   }
+  function startGame() { startStage(Meta.lastStage()); }
+  // 1回の挑戦のはじまり（ライフ3・60秒・コイン0・復活0回）
   function beginStage() {
     state.stageScore = 0;
+    state.totalAtStageStart = state.total;
     state.time = STAGE_TIME;
+    state.lives = MAX_LIVES;
     state.combo = 0;
     state.bombsHit = 0;
     state.elapsed = 0;
     state.spawnTimer = 0.3;
     state.spawned = {};
     state.lastTick = 0;
+    state.lostBy = { bomb: 0, escape: 0 };
+    state.escaped = {};
+    state.coins = 0; state.revives = 0; state.guard = 0; state.guarded = 0; state.lostLife = false; state.reward = null; state.timeUp = false;
+    el.lives.classList.remove('hurt', 'healed');
+    el.lives.querySelectorAll('.heart').forEach((h) => h.classList.remove('hit', 'heal'));
+    hudCache.lives = -1;
     balloons = [];
+    trail = [];
     state.bag = [];
     refillBag();
     clearEffects();                   // 前のステージの効果は持ちこさない
@@ -966,34 +1115,43 @@
     starTimers = [];
     hide(el.clear);
     saveBest();                       // ここまで来た＝このステージに到達
+    Meta.beginAttempt(state.stage);   // とちゅうで閉じても、次はこのステージの最初から
+    Meta.setInPlay(true);
+    applyWorld(state.stage);
+    buddyRender();
     state.mode = 'intro';
     state.introLeft = INTRO_TIME;
-    banner('ステージ ' + state.stage + '\n目標 ' + targetOf(state.stage) + '点', 'intro', NEW_AT[state.stage] ? 'NEW! ' + NEW_AT[state.stage] : '');
+    const world = Meta.worldOf(state.stage);
+    const newWorld = (state.stage - 1) % Meta.STAGES_PER_WORLD === 0;
+    banner('ステージ ' + state.stage + '\n目標 ' + targetOf(state.stage) + '点', 'intro',
+      state.stage === FROM_STAGE.rush ? 'NEW! ボーナスラッシュが来るかも' : newWorld ? world.name : '');
+    Sound.resetBgm(Meta.worldIndexOf(state.stage));
     Sound.se.start();
     Sound.startBgm();
     updateHud();
   }
+  // 5ステージごとに景色（空の色・丘など）をかえる。ホーム画面では、いま遊んでいるステージの景色
+  function applyWorld(stage) { document.body.dataset.world = Meta.worldOf(stage).id; }
   // 時間切れ（目標点に届いたら、その瞬間に clearStage になるので、ここに来るのは届かなかった時だけ）
   function endStage() {
     state.time = 0;
+    state.timeUp = true;
     updateHud();
     state.overReason = '目標の ' + targetOf(state.stage) + '点 に、とどかなかった';
-    gameOver();
+    offerRevive();
   }
-  // そのステージで初めて出てくるもの（「ステージ○」の下にお知らせ）
-  const NEW_AT = {
-    [FROM_STAGE.heart]: 'ハートの風船：ライフ+1', [FROM_STAGE.slow]: 'スローの風船：ゆっくりになる', [FROM_STAGE.double]: '×2の風船：得点2倍',
-    [FROM_STAGE.rush]: 'ボーナスラッシュが来るかも', [FROM_STAGE.freeze]: 'フリーズの風船：風船が止まる', [FROM_STAGE.mystery]: '？の風船：なにかいいこと',
-  };
   // 目標点に届いた瞬間のステージクリア（5ステージごとは SPECIAL CLEAR!）
   let starTimers = [];
   function clearStage() {
     state.mode = 'clear';
     state.clearSec = state.elapsed;
     state.stars = starsOf(state.clearSec, state.bombsHit);
+    const nomiss = !state.lostLife;
     clearEffects();
     saveBest();
     Sound.stopBgm();
+    // コイン：この挑戦で集めたコイン＋はじめてのクリア30（2回目からは15）＋ノーミス50
+    const rw = state.reward = Meta.stageCleared({ stage: state.stage, stars: state.stars, nomiss, earned: state.coins });
     const special = state.stage % SPECIAL_EVERY === 0;
     state.special = special;
     el.clear.classList.toggle('special', special);
@@ -1007,6 +1165,14 @@
     $('clearTarget').textContent = targetOf(state.stage);
     $('clearTotal').textContent = state.total;
     $('clearBombs').textContent = state.bombsHit;
+    $('clearCoins').textContent = rw.total;
+    const parts = ['風船・コンボ +' + rw.earned, (rw.first ? 'はじめてクリア +' : 'クリア +') + rw.clear];
+    if (rw.nomiss) parts.push('ノーミス +' + rw.nomiss);
+    $('clearCoinNote').textContent = parts.join('／');
+    $('nextBtn').textContent = 'つぎのステージへ（' + (state.stage + 1) + '）';
+    const d = Meta.data;
+    Chars.render($('clearChar'), d.char, Meta.equipOf(d.char), 'joy');
+    setTimeout(() => Chars.cheer($('clearChar'), d.char), 400);
     // 星を1個ずつ光らせる（とれた星だけ、光る音つき）
     starTimers.forEach(clearTimeout);
     starTimers = [];
@@ -1020,42 +1186,100 @@
     $('stars').dataset.count = state.stars;
     updateHud();
     show(el.clear);
+    // 30・50・100…ステージの節目は、星が出たあとに特別なお祝い（ui.js）。トロフィーのお祝いもそのあと
+    const milestone = Meta.isMilestone(state.stage);
+    setTimeout(() => {
+      if (state.mode !== 'clear') return;
+      if (milestone) document.dispatchEvent(new CustomEvent('balloon:milestone', { detail: { stage: state.stage } }));
+      Meta.setInPlay(false);
+    }, STAR_FIRST_MS + 3 * STAR_STEP_MS + 300);
   }
   const STAR_FIRST_MS = 600;   // クリア画面が出てから1個目の星が光るまで
   const STAR_STEP_MS = 450;    // 星と星のあいだ
   const formatSec = (sec) => (Math.floor(sec * 10) / 10).toFixed(1);
+
+  // ---------- 復活（ライフ0・時間切れの時。1回の挑戦で3回まで。30・60・100コイン） ----------
+  function offerRevive() {
+    if (state.revives >= MAX_REVIVES) { gameOver(); return; }
+    state.mode = 'revive';
+    Sound.stopBgm();
+    const cost = Meta.reviveCost(state.revives), have = Meta.coins();
+    $('reviveTitle').textContent = state.timeUp ? '時間切れ！' : 'ライフがなくなった！';
+    $('reviveCost').textContent = cost;
+    $('reviveHave').textContent = have;
+    $('reviveLeft').textContent = MAX_REVIVES - state.revives;
+    const ok = have >= cost;
+    $('reviveBtn').disabled = !ok;
+    $('reviveBtn').textContent = ok ? cost + 'コインで ふっかつ！' : 'コインが ' + (cost - have) + ' たりない';
+    show($('revive'));
+  }
+  function doRevive() {
+    if (state.mode !== 'revive') return;
+    if (!Meta.spendRevive(state.revives)) { Sound.se.nope(); offerRevive(); return; }   // 復活のコインは返金しない
+    state.revives++;
+    hide($('revive'));
+    state.lives = Math.max(state.lives, REVIVE_LIVES);
+    state.time = Math.max(0, state.time) + REVIVE_TIME;
+    state.guard = guardSec;
+    state.timeUp = false;
+    state.lastTick = 0;
+    state.mode = 'play';
+    hudCache.lives = -1;
+    updateHud();
+    el.lives.querySelectorAll('.heart').forEach((h, i) => { h.classList.remove('hit', 'heal'); if (i < state.lives) { void h.offsetWidth; h.classList.add('heal'); } });
+    banner('ふっかつ！', 'go', 'ライフ' + state.lives + '・+' + REVIVE_TIME + '秒');
+    Sound.se.revive();
+    Sound.startBgm();
+    buddyCheer();
+  }
+
   function gameOver() {
     state.mode = 'over';
     clearEffects();
     saveBest();
+    Meta.stageFailed(state.stage);   // この挑戦で集めたコインは受け取れない（前からのコイン・買ったものはそのまま）
+    Meta.setInPlay(false);
     Sound.stopBgm();
     Sound.se.over();
     hide(el.hud);
+    hide($('revive'));
     $('overReason').textContent = state.overReason;
     $('overStage').textContent = state.stage;
     $('overScore').textContent = state.total;
+    $('overCoins').textContent = state.coins;
     $('recScore').textContent = state.bestScore;
     $('recStage').textContent = state.bestStage;
     $('newScore').classList.toggle('hidden', !(state.total > state.bestScoreAtStart && state.total > 0));
     $('newStage').classList.toggle('hidden', !(state.stage > state.bestStageAtStart));
+    $('retryBtn').textContent = 'もう一度 ステージ' + state.stage + '（無料）';
+    const d = Meta.data;
+    Chars.render($('overChar'), d.char, Meta.equipOf(d.char), 'sad');
     show(el.result);
     document.dispatchEvent(new Event('balloon:result'));
   }
+  // ホーム画面へ（とちゅうでやめた時は、その挑戦のコインは受け取らない）
   function goTitle() {
+    if (['intro', 'play', 'paused', 'ending', 'revive'].includes(state.mode)) Meta.stageFailed(state.stage);
     starTimers.forEach(clearTimeout);
     saveBest();
     state.mode = 'title';
+    Meta.setInPlay(false);
     clearEffects();
     updateHud();
     Sound.stopBgm();
     balloons = [];
-    [el.hud, el.result, el.clear, el.pause].forEach(hide);
+    trail = [];
+    document.querySelectorAll('.screen').forEach(hide);
+    hide(el.hud);
     el.banner.className = 'banner';
     $('bestScore').textContent = state.bestScore;
     $('bestStage').textContent = state.bestStage;
+    applyWorld(Meta.lastStage());
     show(el.start);
     document.dispatchEvent(new Event('balloon:title'));
   }
+  // 冒険マップへ（ui.js が開く）
+  function goMap() { goTitle(); document.dispatchEvent(new Event('balloon:openmap')); }
 
   // ---------- 一時停止 ----------
   let confirmAction = null;
@@ -1085,31 +1309,32 @@
 
   // ---------- ボタン ----------
   $('startBtn').addEventListener('click', startGame);
-  $('retryBtn').addEventListener('click', startGame);
+  $('retryBtn').addEventListener('click', () => startStage(state.stage, true));
   $('titleBtn').addEventListener('click', goTitle);
+  $('failMapBtn').addEventListener('click', goMap);
+  $('clearHomeBtn').addEventListener('click', goTitle);
+  $('clearMapBtn').addEventListener('click', goMap);
   $('nextBtn').addEventListener('click', () => {
     if (state.mode !== 'clear') return;
     Sound.unlock();
     state.stage++;
     beginStage();
   });
+  $('reviveBtn').addEventListener('click', doRevive);
+  $('giveUpBtn').addEventListener('click', () => { if (state.mode === 'revive') gameOver(); });
   $('pauseBtn').addEventListener('click', pauseGame);
   $('resumeBtn').addEventListener('click', resumeGame);
-  $('restartBtn').addEventListener('click', () => askConfirm('さいしょからやり直しますか？', () => { saveBest(); startGame(); }));
-  $('quitBtn').addEventListener('click', () => askConfirm('タイトルにもどりますか？', goTitle));
+  $('restartBtn').addEventListener('click', () => askConfirm('このステージを さいしょからやり直しますか？', () => { saveBest(); startStage(state.stage, true); }));
+  $('quitBtn').addEventListener('click', () => askConfirm('ホームにもどりますか？（このステージで集めたコインは もらえません）', goTitle));
   $('noBtn').addEventListener('click', () => { hide(el.confirm); show(el.pauseMenu); });
   $('yesBtn').addEventListener('click', () => { const a = confirmAction; confirmAction = null; if (a) a(); });
+  // BGM・効果音のボタン（一時停止・設定画面にある。どれを押しても同じ設定）
   function refreshSoundButtons() {
-    document.querySelectorAll('.soundToggle').forEach((b) => {
-      b.textContent = Sound.isEnabled() ? '音：オン' : '音：オフ';
-      b.classList.toggle('off', !Sound.isEnabled());
-    });
+    document.querySelectorAll('.bgmToggle').forEach((b) => { b.textContent = 'BGM：' + (Sound.bgmOn() ? 'オン' : 'オフ'); b.classList.toggle('off', !Sound.bgmOn()); });
+    document.querySelectorAll('.seToggle').forEach((b) => { b.textContent = '効果音：' + (Sound.seOn() ? 'オン' : 'オフ'); b.classList.toggle('off', !Sound.seOn()); });
   }
-  document.querySelectorAll('.soundToggle').forEach((b) => b.addEventListener('click', () => {
-    Sound.unlock();
-    Sound.setEnabled(!Sound.isEnabled());
-    refreshSoundButtons();
-  }));
+  document.querySelectorAll('.bgmToggle').forEach((b) => b.addEventListener('click', () => { Sound.unlock(); Sound.setBgm(!Sound.bgmOn()); refreshSoundButtons(); }));
+  document.querySelectorAll('.seToggle').forEach((b) => b.addEventListener('click', () => { Sound.unlock(); Sound.setSe(!Sound.seOn()); refreshSoundButtons(); Sound.se.tap(); }));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
       if (state.mode === 'paused') resumeGame(); else pauseGame();
@@ -1123,14 +1348,15 @@
   function update(dt) {
     if (state.mode === 'paused') return;
     updateEffects(dt);
-    // クリアしたら、風船と爆弾はその場で止まる。スロー中は半分の速さ、フリーズ中は止まる（制限時間はふつうに進む）
-    if (state.mode !== 'clear') moveBalloons(dt * motionRate());
+    // クリアしたら・復活するか聞いている間は、風船と爆弾はその場で止まる。スロー中は半分の速さ、フリーズ中は止まる（制限時間はふつうに進む）
+    if (state.mode !== 'clear' && state.mode !== 'revive') moveBalloons(dt * motionRate());
     if (state.mode === 'intro') {
       state.introLeft -= dt;
       if (state.introLeft <= 0) { state.mode = 'play'; banner('スタート！', 'go'); }
     } else if (state.mode === 'play') {
       state.time -= dt;
       state.elapsed += dt;
+      if (state.guard > 0) state.guard = Math.max(0, state.guard - dt);
       const sec = Math.ceil(state.time);
       if (sec <= 5 && sec >= 1 && sec !== state.lastTick) { state.lastTick = sec; Sound.se.tick(); }
       tickEffects(dt);
@@ -1149,9 +1375,9 @@
       if (state.time <= 0 && state.mode === 'play') endStage();
     } else if (state.mode === 'ending') {
       state.endTimer -= dt;
-      if (state.endTimer <= 0) gameOver();
+      if (state.endTimer <= 0) offerRevive();
     } else if (state.mode === 'title' || state.mode === 'over') {
-      // スタート画面のうしろで、かざりの風船がのんびり飛ぶ
+      // ホーム画面のうしろで、かざりの風船がのんびり飛ぶ
       state.decoTimer -= dt;
       if (state.decoTimer <= 0) {
         state.decoTimer = 1.1 + Math.random() * 0.8;
@@ -1177,11 +1403,22 @@
   refreshSoundButtons();
   $('bestScore').textContent = state.bestScore;
   $('bestStage').textContent = state.bestStage;
+  applyWorld(Meta.lastStage());
   requestAnimationFrame(frame);
 
   window.BalloonGame = {
-    // pwa.js が使う：ゲームの途中（一時停止中・ステージクリア画面も含む）は、新しいバージョンに切り替えない
-    isPlaying: () => ['intro', 'play', 'paused', 'ending', 'clear'].includes(state.mode),
+    // pwa.js が使う：ゲームの途中（一時停止中・復活の画面・ステージクリア画面も含む）は、新しいバージョンに切り替えない
+    isPlaying: () => ['intro', 'play', 'paused', 'ending', 'revive', 'clear'].includes(state.mode),
+    // ui.js が使う
+    startStage: (n) => startStage(n),
+    startGame,
+    goTitle,
+    applyWorld,
+    targetOf,
+    drawIcons: drawRuleIcons,
+    sound: Sound,
+    fx: { confetti: (n) => confetti(n), fireworks: () => fireworks() },
+    mode: () => state.mode,
     // 自動テスト用（tools/test.ps1）。遊び方には関係しない
     test: {
       state: () => ({ mode: state.mode, stage: state.stage, total: state.total, stageScore: state.stageScore, lives: state.lives,
@@ -1189,6 +1426,7 @@
         lostBy: { ...state.lostBy }, escaped: { ...state.escaped }, overReason: state.overReason,
         motion: state.motion ? { ...state.motion } : null, doubleLeft: state.doubleLeft, rushLeft: state.rushLeft, rushDone: state.rushDone, rushAt: state.rushAt,
         mysteryTimeUsed: state.mysteryTimeUsed, lastMystery: state.lastMystery, savedByRush: state.savedByRush, special: !!state.special,
+        coins: state.coins, revives: state.revives, guard: state.guard, guarded: state.guarded, lostLife: state.lostLife, reward: state.reward,
         bestScore: state.bestScore, bestStage: state.bestStage, spawned: { ...state.spawned }, R, W, H }),
       balloons: () => balloons.filter((b) => !b.dead && !b.deco).map((b) => ({ id: b.id, kind: b.kind, x: b.x, y: b.y, r: b.r })),
       spawn: (kind, x, y, moving) => { const b = spawn(kind, { x, y, still: !moving }); if (!moving) b.amp = 0; return b.id; },
@@ -1196,10 +1434,12 @@
       setTime: (sec) => { state.time = sec; },
       setLives: (n) => { state.lives = n; },
       setStage: (n) => { state.stage = n; },
+      setGuardSec: (n) => { guardSec = n; state.guard = Math.min(state.guard, n); },
       startRush: () => { if (state.mode === 'play') startRush(); },
       setRushAt: (sec) => { state.rushAt = sec; },
       nextMystery: (k) => { forcedMystery = k; },
       particles: () => particles.length,
+      trail: () => trail.length,
       bag: () => state.bag.slice(),
       refillBag: () => { state.bag = []; refillBag(); return state.bag.slice(); },
       setElapsed: (sec) => { state.elapsed = sec; },

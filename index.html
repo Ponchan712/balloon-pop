@@ -19,8 +19,8 @@
 
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <!-- 明るい青空の背景（太陽・ながれる雲・丘） -->
+<body data-world="meadow">
+  <!-- 空の背景（太陽・ながれる雲・丘）。5ステージごとに色がかわる（body の data-world） -->
   <div class="sky" aria-hidden="true">
     <div class="sun"></div>
     <div class="cloud c1"></div>
@@ -31,7 +31,7 @@
     <div class="hills"></div>
   </div>
 
-  <!-- 風船がとぶところ（ここをタップして風船をわる） -->
+  <!-- 風船がとぶところ（ここをタップ・スワイプして風船をわる） -->
   <canvas id="field"></canvas>
 
   <!-- プレイ中の表示 -->
@@ -48,6 +48,7 @@
     </div>
     <div class="hud-row">
       <div class="chip score">とくてん <b id="scoreNum">0</b></div>
+      <div class="chip coin" aria-label="このステージのコイン"><i class="coinIcon"></i><b id="coinNum">0</b></div>
       <div class="goal" id="goal">
         <div class="goal-text">目標 <b id="stageScoreNum">0</b> / <span id="targetNum">200</span></div>
         <div class="goal-bar"><div class="goal-fill" id="goalFill"></div></div>
@@ -56,6 +57,8 @@
     <div class="combo" id="combo"></div>
     <!-- とくべつな効果ののこり時間（SLOW あと○秒 など） -->
     <div class="effects" id="effects" aria-live="polite"></div>
+    <!-- いっしょに遊ぶキャラクター（左下。タップは下の風船にそのまま通る） -->
+    <div class="buddy" id="buddy" aria-hidden="true"></div>
   </div>
 
   <!-- 「ステージ1」「スタート！」「目標たっせい！」などの大きな文字 -->
@@ -63,32 +66,145 @@
   <!-- コンボボーナスの文字 -->
   <div class="bonus" id="bonus"></div>
 
-  <!-- スタート画面 -->
-  <div class="screen" id="start">
-    <div class="panel start-panel">
-      <div class="deco" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+  <!-- ホーム画面 -->
+  <div class="screen home" id="start">
+    <div class="homeBox">
+      <div class="homeTop">
+        <div class="coinBadge" aria-label="もっているコイン"><i class="coinIcon"></i><b class="coinsNow" id="homeCoins">0</b></div>
+        <div class="homeStage" id="homeStage">ステージ1</div>
+      </div>
       <h1 class="title"><span>バ</span><span>ル</span><span>ー</span><span>ン</span><span>ポ</span><span>ッ</span><span>プ</span><span>！</span></h1>
-      <p class="lead">ふうせんをタップして、わろう！</p>
-      <ul class="rules">
-        <li><canvas class="kindIcon" data-kind="normal"></canvas><b>10点</b><small>ふつう</small></li>
-        <li><canvas class="kindIcon" data-kind="gold"></canvas><b>50点</b><small>金色</small></li>
-        <li><canvas class="kindIcon" data-kind="rainbow"></canvas><b>まとめわり</b><small>にじ色</small></li>
-        <li><canvas class="kindIcon" data-kind="clock"></canvas><b>+10秒</b><small>とけい</small></li>
-        <li><canvas class="kindIcon" data-kind="bomb"></canvas><b>ライフ-1</b><small>ばくだん</small></li>
-      </ul>
-      <ul class="rules later" aria-label="ステージが進むと出てくる風船">
-        <li><canvas class="kindIcon" data-kind="heart"></canvas><b>ライフ+1</b><small>ST2〜</small></li>
-        <li><canvas class="kindIcon" data-kind="slow"></canvas><b>スロー</b><small>ST3〜</small></li>
-        <li><canvas class="kindIcon" data-kind="double"></canvas><b>得点×2</b><small>ST4〜</small></li>
-        <li><canvas class="kindIcon" data-kind="freeze"></canvas><b>フリーズ</b><small>ST6〜</small></li>
-        <li><canvas class="kindIcon" data-kind="mystery"></canvas><b>？</b><small>ST7〜</small></li>
-      </ul>
-      <p class="note">60秒以内に目標点をとるとステージクリア！<br>5回つづけてわると、ボーナス+50点<br>にがすとライフ-1（ばくだんはOK）</p>
+      <button class="homeChar" id="homeChar" aria-label="キャラクター"></button>
+      <div class="homeCharName" id="homeCharName"></div>
+      <button class="btn startBtn" id="startBtn">あそぶ<small id="startLabel">ステージ1</small></button>
+      <div class="menuGrid">
+        <button class="menuBtn" data-open="mapScreen"><span class="mi">🗺️</span>冒険マップ</button>
+        <button class="menuBtn" data-open="shopScreen" id="shopMenu"><span class="mi">🛍️</span>ショップ</button>
+        <button class="menuBtn" data-open="roomScreen"><span class="mi">👗</span>きせかえ</button>
+        <button class="menuBtn" data-open="trophyScreen"><span class="mi">🏆</span>トロフィー</button>
+        <button class="menuBtn" data-open="challengeScreen" id="challengeMenu"><span class="mi">🎯</span>チャレンジ</button>
+        <button class="menuBtn" data-open="loginScreen" id="loginMenu"><span class="mi">🎁</span>ログイン<br>ボーナス</button>
+        <button class="menuBtn" data-open="settingsScreen"><span class="mi">⚙️</span>せってい<br>きろく</button>
+        <button class="menuBtn" data-open="tutorial"><span class="mi">❓</span>あそびかた</button>
+      </div>
+      <div class="weeklyMini" id="weeklyMini"></div>
       <div class="best">最高得点 <b id="bestScore">0</b>点<span class="sep">／</span>最高ステージ <b id="bestStage">0</b></div>
-      <button class="btn" id="startBtn">あそぶ</button>
-      <button class="btn sub soundToggle" type="button">音：オン</button>
     </div>
   </div>
+
+  <!-- 冒険マップ・ショップ・きせかえ・トロフィー・チャレンジ・せってい（中身は ui.js が作る） -->
+  <div class="screen page hidden" id="mapScreen">
+    <div class="pageBox">
+      <header class="pageHead"><button class="backBtn" data-back>‹ もどる</button><h2>冒険マップ</h2><div class="coinBadge small"><i class="coinIcon"></i><b class="coinsNow">0</b></div></header>
+      <div class="pageBody" id="mapBody"></div>
+    </div>
+  </div>
+  <div class="screen page hidden" id="shopScreen">
+    <div class="pageBox">
+      <header class="pageHead"><button class="backBtn" data-back>‹ もどる</button><h2>ショップ</h2><div class="coinBadge small"><i class="coinIcon"></i><b class="coinsNow">0</b></div></header>
+      <div class="tabs" id="shopTabs">
+        <button class="tab on" data-tab="pick">おすすめ</button><button class="tab" data-tab="char">キャラ</button><button class="tab" data-tab="special">とくべつ風船</button><button class="tab" data-tab="item">きせかえ</button>
+      </div>
+      <div class="pageBody" id="shopBody"></div>
+    </div>
+  </div>
+  <div class="screen page hidden" id="roomScreen">
+    <div class="pageBox">
+      <header class="pageHead"><button class="backBtn" data-back>‹ もどる</button><h2>きせかえルーム</h2><div class="coinBadge small"><i class="coinIcon"></i><b class="coinsNow">0</b></div></header>
+      <div class="pageBody room" id="roomBody">
+        <div class="roomStage">
+          <button class="arrowBtn" id="roomPrev" aria-label="まえのキャラ">‹</button>
+          <button class="roomChar" id="roomChar" aria-label="キャラクター"></button>
+          <button class="arrowBtn" id="roomNext" aria-label="つぎのキャラ">›</button>
+        </div>
+        <div class="roomName" id="roomName"></div>
+        <div class="roomActions" id="roomActions"></div>
+        <div class="roomItems" id="roomItems"></div>
+      </div>
+    </div>
+  </div>
+  <div class="screen page hidden" id="trophyScreen">
+    <div class="pageBox">
+      <header class="pageHead"><button class="backBtn" data-back>‹ もどる</button><h2>トロフィー</h2><div class="coinBadge small"><i class="coinIcon"></i><b class="coinsNow">0</b></div></header>
+      <div class="pageBody" id="trophyBody"></div>
+    </div>
+  </div>
+  <div class="screen page hidden" id="challengeScreen">
+    <div class="pageBox">
+      <header class="pageHead"><button class="backBtn" data-back>‹ もどる</button><h2>チャレンジ</h2><div class="coinBadge small"><i class="coinIcon"></i><b class="coinsNow">0</b></div></header>
+      <div class="pageBody" id="challengeBody"></div>
+    </div>
+  </div>
+  <div class="screen page hidden" id="settingsScreen">
+    <div class="pageBox">
+      <header class="pageHead"><button class="backBtn" data-back>‹ もどる</button><h2>せってい・きろく</h2><div class="coinBadge small"><i class="coinIcon"></i><b class="coinsNow">0</b></div></header>
+      <div class="pageBody" id="settingsBody">
+        <div class="setRow"><button class="btn sub bgmToggle" type="button">BGM：オン</button><button class="btn sub seToggle" type="button">効果音：オン</button></div>
+        <dl class="stats records2" id="recordList"></dl>
+        <button class="btn sub" type="button" data-open="tutorial">あそびかたを見る</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ログインボーナス -->
+  <div class="screen dim hidden" id="loginScreen">
+    <div class="panel">
+      <h2>ログインボーナス</h2>
+      <p class="small">7日でひとまわり。休んだ日があっても、つづきから もらえるよ</p>
+      <div class="loginGrid" id="loginGrid"></div>
+      <button class="btn" id="loginClaimBtn">うけとる</button>
+      <button class="btn sub" data-back>とじる</button>
+    </div>
+  </div>
+
+  <!-- あそびかた（はじめて開いた時にも出る） -->
+  <div class="screen dim hidden" id="tutorial">
+    <div class="panel tutPanel">
+      <div class="tutPage" data-page="0">
+        <h2>あそびかた</h2>
+        <p class="tutBig">👆 ふうせんを <b>タップ</b>！<br>✨ なぞって <b>スワイプ</b> でも われるよ</p>
+        <p>60秒のうちに <b>目標の点数</b> をとったらクリア！</p>
+      </div>
+      <div class="tutPage hidden" data-page="1">
+        <h2>ふうせんの しゅるい</h2>
+        <ul class="rules">
+          <li><canvas class="kindIcon" data-kind="normal"></canvas><b>10点</b><small>ふつう</small></li>
+          <li><canvas class="kindIcon" data-kind="gold"></canvas><b>50点</b><small>金色</small></li>
+          <li><canvas class="kindIcon" data-kind="rainbow"></canvas><b>まとめわり</b><small>にじ色</small></li>
+          <li><canvas class="kindIcon" data-kind="clock"></canvas><b>+10秒</b><small>とけい</small></li>
+          <li><canvas class="kindIcon" data-kind="bomb"></canvas><b>ライフ-1</b><small>ばくだん</small></li>
+        </ul>
+        <p>5回つづけて わると <b>+50点・+5コイン</b></p>
+      </div>
+      <div class="tutPage hidden" data-page="2">
+        <h2>ライフに ちゅうい</h2>
+        <p class="tutBig">❤️❤️❤️ ライフは3つ</p>
+        <p>ばくだんに さわる・ふうせんを 上へ にがす と <b>ライフ-1</b><br>（ばくだんは にがしても だいじょうぶ）</p>
+        <p>ライフが0でも コインで <b>ふっかつ</b> できるよ</p>
+      </div>
+      <div class="tutPage hidden" data-page="3">
+        <h2>コインを あつめよう</h2>
+        <p class="tutBig">🪙 ふうせん1こで 1コイン</p>
+        <p>ショップで <b>キャラ・きせかえ・とくべつな風船</b> が買えるよ<br>トロフィーや ミッションでも コインがもらえる！</p>
+      </div>
+      <div class="tutDots" id="tutDots"><i class="on"></i><i></i><i></i><i></i></div>
+      <button class="btn" id="tutNext">つぎへ</button>
+    </div>
+  </div>
+
+  <!-- お祝い（トロフィー・コンプリート・週間チャレンジ全達成・30／50／100ステージ） -->
+  <div class="screen dim hidden" id="celebrate">
+    <div class="panel celebPanel">
+      <div class="celebArt" id="celebArt"></div>
+      <h2 class="celebTitle" id="celebTitle"></h2>
+      <p class="celebText" id="celebText"></p>
+      <p class="celebCoins" id="celebCoins"></p>
+      <button class="btn" id="celebOk">やったね！</button>
+    </div>
+  </div>
+
+  <!-- 小さなお知らせ（ミッション達成など。プレイは止めない） -->
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <!-- 一時停止 -->
   <div class="screen dim hidden" id="pause">
@@ -96,9 +212,9 @@
       <h2>一時停止</h2>
       <div class="menu" id="pauseMenu">
         <button class="btn" id="resumeBtn">つづける</button>
-        <button class="btn sub soundToggle" type="button">音：オン</button>
+        <div class="setRow"><button class="btn sub bgmToggle" type="button">BGM：オン</button><button class="btn sub seToggle" type="button">効果音：オン</button></div>
         <button class="btn sub" id="restartBtn">さいしょから</button>
-        <button class="btn sub" id="quitBtn">タイトルへ</button>
+        <button class="btn sub" id="quitBtn">ホームへ</button>
       </div>
       <div class="menu hidden" id="confirm">
         <p class="confirmText" id="confirmText">さいしょからやり直しますか？</p>
@@ -108,12 +224,24 @@
     </div>
   </div>
 
+  <!-- 復活する？（ライフ0・時間切れ） -->
+  <div class="screen dim hidden" id="revive">
+    <div class="panel revivePanel">
+      <h2 id="reviveTitle">ライフがなくなった！</h2>
+      <p class="reviveText">コインを つかって ふっかつ できるよ<br><b>ライフ2・のこり時間 +10秒</b></p>
+      <div class="reviveInfo">ひつよう <b id="reviveCost">30</b> コイン<span class="sep">／</span>もっている <b id="reviveHave">0</b><br>ふっかつ できるのは あと <b id="reviveLeft">3</b> 回</div>
+      <button class="btn" id="reviveBtn">ふっかつ！</button>
+      <button class="btn sub" id="giveUpBtn">あきらめる</button>
+    </div>
+  </div>
+
   <!-- ステージクリア -->
   <div class="screen dim hidden" id="clear">
     <div class="panel clear-panel">
       <h2 class="stageClear" aria-label="ステージクリア"><span>STAGE</span> <span>CLEAR!</span></h2>
       <p class="clearSub">ステージ <span id="clearStage">1</span> クリア！</p>
-      <div class="stars" id="stars"><span class="star"></span><span class="star"></span><span class="star"></span></div>
+      <div class="starRow"><div class="clearChar" id="clearChar"></div><div class="stars" id="stars"><span class="star"></span><span class="star"></span><span class="star"></span></div></div>
+      <div class="coinGain"><i class="coinIcon"></i><span>+<b id="clearCoins">0</b> コイン</span><small id="clearCoinNote"></small></div>
       <dl class="stats">
         <dt>クリアまでの時間</dt><dd><b id="clearTime">0.0</b>秒</dd>
         <dt>かくとく得点</dt><dd><b id="clearStageScore">0</b>点</dd>
@@ -121,33 +249,38 @@
         <dt>ばくだん</dt><dd><b id="clearBombs">0</b>回</dd>
         <dt>ごうけい</dt><dd><b id="clearTotal">0</b>点</dd>
       </dl>
-      <p class="starHint">★2：40秒以内にクリア<br>★3：30秒以内にクリア＋ばくだん0回</p>
+      <p class="starHint">★2：40秒以内にクリア／★3：30秒以内＋ばくだん0回</p>
       <button class="btn" id="nextBtn">つぎのステージへ</button>
+      <div class="btnRow"><button class="btn sub" id="clearMapBtn">マップ</button><button class="btn sub" id="clearHomeBtn">ホーム</button></div>
     </div>
   </div>
 
-  <!-- ゲームオーバー -->
+  <!-- ゲームオーバー（同じステージから無料で何度でも） -->
   <div class="screen dim hidden" id="result">
     <div class="panel">
-      <h2>ゲームオーバー</h2>
+      <div class="overHead"><div class="overChar" id="overChar"></div><h2>ゲームオーバー</h2></div>
       <p class="reason" id="overReason"></p>
       <dl class="stats">
-        <dt>とどいたステージ</dt><dd>ステージ <b id="overStage">1</b></dd>
+        <dt>ステージ</dt><dd>ステージ <b id="overStage">1</b></dd>
         <dt>とくてん</dt><dd><b id="overScore">0</b>点</dd>
+        <dt>もらえなかったコイン</dt><dd><b id="overCoins">0</b>枚</dd>
       </dl>
       <div class="records">
         <div>最高得点 <b id="recScore">0</b>点 <span class="new hidden" id="newScore">NEW!</span></div>
         <div>最高ステージ <b id="recStage">0</b> <span class="new hidden" id="newStage">NEW!</span></div>
       </div>
       <button class="btn" id="retryBtn">もう一度あそぶ</button>
-      <button class="btn sub" id="titleBtn">タイトルへ</button>
+      <div class="btnRow"><button class="btn sub" id="failMapBtn">マップ</button><button class="btn sub" id="titleBtn">ホームへ</button></div>
     </div>
   </div>
 
   <!-- いまのバージョン（中身は pwa.js が service-worker.js の CACHE_VERSION から入れる） -->
   <div class="version" id="version" aria-label="バージョン"></div>
 
+  <script src="chars.js"></script>
+  <script src="meta.js"></script>
   <script src="script.js"></script>
+  <script src="ui.js"></script>
   <!-- オフライン対応と、新しいバージョンへの自動更新 -->
   <script src="pwa.js"></script>
 </body>

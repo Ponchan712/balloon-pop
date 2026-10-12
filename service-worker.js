@@ -15,6 +15,9 @@ const APP_FILES = [
   './index.html',
   './style.css',
   './script.js',
+  './chars.js',
+  './meta.js',
+  './ui.js',
   './pwa.js',
   './service-worker.js',     // 画面右下のバージョン表示が、オフラインでも読めるように
   './manifest.webmanifest',
